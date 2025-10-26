@@ -28,7 +28,7 @@ export class TaskApplicationService {
       dto.description || '',
       dto.priority,
       dto.dueDate,
-      dto.userId,
+      dto.userId ?? null,
     );
     await this.commandBus.execute(command);
   }
@@ -62,7 +62,7 @@ export class TaskApplicationService {
   }
 
   async getTasksByAssignee(
-    assigneeId: string,
+    assigneeId: string | null,
     status?: TaskStatus,
   ): Promise<Task[]> {
     return this.queryBus.execute(

@@ -4,7 +4,7 @@ export class CreateTaskCommand {
     public readonly description: string,
     public readonly priority: string,
     public readonly dueDate: string | null,
-    public readonly assigneeId: string,
+    public readonly assigneeId: string | null,
   ) {}
 }
 

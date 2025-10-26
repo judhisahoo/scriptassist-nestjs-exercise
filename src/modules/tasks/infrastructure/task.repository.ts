@@ -63,9 +63,14 @@ export class TaskRepository implements ITaskRepository {
     return { items, total };
   }
 
-  async findByAssignee(userId: string, status?: string): Promise<Task[]> {
-    const queryBuilder = this.taskRepository.createQueryBuilder('task')
-      .where('task.userId = :userId', { userId });
+  async findByAssignee(userId: string | null, status?: string): Promise<Task[]> {
+    const queryBuilder = this.taskRepository.createQueryBuilder('task');
+
+    if (userId) {
+      queryBuilder.where('task.userId = :userId', { userId });
+    } else {
+      queryBuilder.where('task.userId IS NULL');
+    }
 
     if (status) {
       queryBuilder.andWhere('task.status = :status', { status });

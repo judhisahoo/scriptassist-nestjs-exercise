@@ -12,8 +12,7 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
-import { RateLimitGuard } from '../../common/guards/rate-limit.guard';
-import { RateLimit } from '../../common/decorators/rate-limit.decorator';
+import { ThrottlerGuard } from '@nestjs/throttler';
 import { TaskApplicationService } from './application/task.application.service';
 import { CreateTaskDto } from './dto/create-task.dto';
 import { UpdateTaskDto } from './dto/update-task.dto';
@@ -21,6 +20,7 @@ import { TaskStatus } from './enums/task-status.enum';
 import { TaskPriority } from './enums/task-priority.enum';
 import { Task } from './entities/task.entity';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
 
 interface TasksResponseDto {
   data: Task[];
@@ -31,15 +31,15 @@ interface TasksResponseDto {
 
 @ApiTags('tasks')
 @Controller('tasks')
-@UseGuards(JwtAuthGuard, RateLimitGuard)
-@RateLimit({ limit: 100, windowMs: 60000 })
+@UseGuards(JwtAuthGuard, ThrottlerGuard)
 @ApiBearerAuth()
 export class TasksController {
   constructor(private readonly taskService: TaskApplicationService) {}
 
   @Post()
   @ApiOperation({ summary: 'Create a new task' })
-  async create(@Body() createTaskDto: CreateTaskDto): Promise<void> {
+  async create(@Body() createTaskDto: CreateTaskDto, @CurrentUser() user: any): Promise<void> {
+    createTaskDto.userId = user.id;
     await this.taskService.createTask(createTaskDto);
   }
 

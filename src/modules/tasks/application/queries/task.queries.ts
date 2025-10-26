@@ -14,7 +14,7 @@ export class GetTasksQuery {
 
 export class GetTasksByAssigneeQuery {
   constructor(
-    public readonly userId: string,
+    public readonly userId: string | null,
     public readonly status?: string,
   ) {}
 }

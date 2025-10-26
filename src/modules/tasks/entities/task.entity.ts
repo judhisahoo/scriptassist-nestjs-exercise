@@ -31,8 +31,8 @@ export class Task {
   @Column({ name: 'due_date', nullable: true, type: 'timestamp' })
   dueDate: Date | null;
 
-  @Column({ name: 'user_id' })
-  userId: string;
+  @Column({ name: 'user_id', nullable: true })
+  userId: string | null;
 
   @ManyToOne(() => User, (user) => user.tasks)
   @JoinColumn({ name: 'user_id' })

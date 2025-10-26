@@ -12,7 +12,7 @@ export class TaskAggregate extends AggregateRoot {
   private status: TaskStatus;
   private priority: TaskPriority;
   private dueDate: Date | null;
-  private assigneeId: string;
+  private assigneeId: string | null;
   private createdAt: Date;
   private updatedAt: Date;
 
@@ -26,7 +26,7 @@ export class TaskAggregate extends AggregateRoot {
     description: string,
     priority: TaskPriority,
     dueDate: Date | null,
-    assigneeId: string,
+    assigneeId: string | null,
   ) {
     this.title = title;
     this.description = description;
@@ -93,7 +93,7 @@ export class TaskAggregate extends AggregateRoot {
     return this.dueDate;
   }
 
-  getAssigneeId(): string {
+  getAssigneeId(): string | null {
     return this.assigneeId;
   }
 }
