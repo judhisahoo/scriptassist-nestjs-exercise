@@ -54,12 +54,10 @@ import { CacheService } from './common/services/cache.service';
     ThrottlerModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ([
-        {
-          ttl: 60,
-          limit: 10,
-        },
-      ]),
+      useFactory: (configService: ConfigService) => ({
+        ttl: 60,
+        limit: 10,
+      }),
     }),
     
     // Feature modules
