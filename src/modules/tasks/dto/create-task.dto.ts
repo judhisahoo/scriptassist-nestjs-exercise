@@ -19,15 +19,15 @@ export class CreateTaskDto {
   @IsOptional()
   status?: TaskStatus;
 
-  @ApiProperty({ enum: TaskPriority, example: TaskPriority.MEDIUM, required: false })
+  @ApiProperty({ enum: TaskPriority, example: TaskPriority.MEDIUM })
   @IsEnum(TaskPriority)
-  @IsOptional()
-  priority?: TaskPriority;
+  @IsNotEmpty()
+  priority: TaskPriority;
 
-  @ApiProperty({ example: '2023-12-31T23:59:59Z', required: false })
-  //@IsDateString()
-  @IsOptional()
-  dueDate?: Date;
+  @ApiProperty({ example: '2025-12-31T23:59:59.000Z' })
+  @IsDateString()
+  @IsNotEmpty()
+  dueDate: string;
 
   @ApiProperty({ example: '123e4567-e89b-12d3-a456-426614174000' })
   @IsUUID()

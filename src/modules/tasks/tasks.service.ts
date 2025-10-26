@@ -307,7 +307,8 @@ export class TasksService {
         `SUM(CASE WHEN status = '${TaskStatus.PENDING}' THEN 1 ELSE 0 END) as pending`,
         `SUM(CASE WHEN status = '${TaskStatus.IN_PROGRESS}' THEN 1 ELSE 0 END) as inProgress`,
         `SUM(CASE WHEN status = '${TaskStatus.COMPLETED}' THEN 1 ELSE 0 END) as completed`,
-        `SUM(CASE WHEN due_date < NOW() AND status != '${TaskStatus.COMPLETED}' THEN 1 ELSE 0 END) as overdue`,
+        `SUM(CASE WHEN status = '${TaskStatus.OVERDUE}' THEN 1 ELSE 0 END) as overdue`,
+        `SUM(CASE WHEN due_date < NOW() AND status != '${TaskStatus.COMPLETED}' THEN 1 ELSE 0 END) as overdueCount`,
       ])
       .getRawOne();
 
@@ -317,8 +318,9 @@ export class TasksService {
         [TaskStatus.PENDING]: parseInt(stats?.pending || '0'),
         [TaskStatus.IN_PROGRESS]: parseInt(stats?.inProgress || '0'),
         [TaskStatus.COMPLETED]: parseInt(stats?.completed || '0'),
+        [TaskStatus.OVERDUE]: parseInt(stats?.overdue || '0'),
       },
-      overdueTasks: parseInt(stats?.overdue || '0'),
+      overdueTasks: parseInt(stats?.overdueCount || '0'),
     };
   }
 }

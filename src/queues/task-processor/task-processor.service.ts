@@ -1,14 +1,15 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
-import { TasksService } from '../../modules/tasks/tasks.service';
+import { TaskApplicationService } from '../../modules/tasks/application/task.application.service';
+import { TaskStatus } from '../../modules/tasks/enums/task-status.enum';
 
 @Injectable()
 @Processor('task-processing')
 export class TaskProcessorService extends WorkerHost {
   private readonly logger = new Logger(TaskProcessorService.name);
 
-  constructor(private readonly tasksService: TasksService) {
+  constructor(private readonly taskService: TaskApplicationService) {
     super();
   }
 
@@ -47,21 +48,39 @@ export class TaskProcessorService extends WorkerHost {
     // Inefficient: No validation of status values
     // No transaction handling
     // No retry mechanism
-    const task = await this.tasksService.updateStatus(taskId, status);
+    await this.taskService.updateTask(taskId, { status });
+    const updatedTask = await this.taskService.getTaskById(taskId);
     
-    return { 
+    if (!updatedTask) {
+      throw new Error('Task not found after update');
+    }
+
+    return {
       success: true,
-      taskId: task.id,
-      newStatus: task.status
+      taskId: updatedTask.id,
+      newStatus: updatedTask.status
     };
   }
 
-  private async handleOverdueTasks(job: Job) {
-    // Inefficient implementation with no batching or chunking for large datasets
+  private async handleOverdueTasks(_job: Job) {
     this.logger.debug('Processing overdue tasks notification');
     
-    // The implementation is deliberately basic and inefficient
-    // It should be improved with proper batching and error handling
-    return { success: true, message: 'Overdue tasks processed' };
+    // Query for overdue tasks using the application service
+    const result = await this.taskService.getTasks(undefined, undefined, 1, 100);
+    const now = new Date();
+    const overdueTasks = result.items.filter(task => 
+      task.dueDate && new Date(task.dueDate) < now && task.status !== TaskStatus.COMPLETED
+    );
+    
+    // Process tasks sequentially - could be optimized with batch processing
+    for (const task of overdueTasks) {
+      await this.taskService.updateTask(task.id, { status: TaskStatus.OVERDUE });
+    }
+    
+    return { 
+      success: true, 
+      message: 'Overdue tasks processed',
+      processedCount: overdueTasks.length 
+    };
   }
 } 

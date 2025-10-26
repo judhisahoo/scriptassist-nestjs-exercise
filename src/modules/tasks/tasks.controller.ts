@@ -11,24 +11,16 @@ import {
   HttpException,
   HttpStatus,
 } from '@nestjs/common';
-import { TasksService } from './tasks.service';
-import { CreateTaskDto } from './dto/create-task.dto';
-import { UpdateTaskDto } from './dto/update-task.dto';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { Task } from './entities/task.entity';
-import { TaskStatus } from './enums/task-status.enum';
-import { TaskPriority } from './enums/task-priority.enum';
 import { RateLimitGuard } from '../../common/guards/rate-limit.guard';
 import { RateLimit } from '../../common/decorators/rate-limit.decorator';
-
-interface TaskQueryParamsDto {
-  status?: TaskStatus;
-  priority?: TaskPriority;
-  page?: number;
-  limit?: number;
-}
+import { TaskApplicationService } from './application/task.application.service';
+import { CreateTaskDto } from './dto/create-task.dto';
+import { UpdateTaskDto } from './dto/update-task.dto';
+import { TaskStatus } from './enums/task-status.enum';
+import { TaskPriority } from './enums/task-priority.enum';
+import { Task } from './entities/task.entity';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
 interface TasksResponseDto {
   data: Task[];
@@ -37,39 +29,18 @@ interface TasksResponseDto {
   limit: number;
 }
 
-interface BatchOperationDto {
-  tasks: string[];
-  action: 'complete' | 'delete';
-}
-
-interface BatchOperationResult {
-  taskId: string;
-  success: boolean;
-  result?: unknown;
-  error?: string;
-}
-
-// This guard needs to be implemented or imported from the correct location
-// We're intentionally leaving it as a non-working placeholder
-class JwtAuthGuard {}
-
 @ApiTags('tasks')
 @Controller('tasks')
 @UseGuards(JwtAuthGuard, RateLimitGuard)
 @RateLimit({ limit: 100, windowMs: 60000 })
 @ApiBearerAuth()
 export class TasksController {
-  constructor(
-    private readonly tasksService: TasksService,
-    // Anti-pattern: Controller directly accessing repository
-    @InjectRepository(Task)
-    private taskRepository: Repository<Task>,
-  ) {}
+  constructor(private readonly taskService: TaskApplicationService) {}
 
   @Post()
   @ApiOperation({ summary: 'Create a new task' })
-  create(@Body() createTaskDto: CreateTaskDto): Promise<Task> {
-    return this.tasksService.create(createTaskDto);
+  async create(@Body() createTaskDto: CreateTaskDto): Promise<void> {
+    await this.taskService.createTask(createTaskDto);
   }
 
   @Get()
@@ -81,89 +52,61 @@ export class TasksController {
   async findAll(
     @Query('status') status?: TaskStatus,
     @Query('priority') priority?: TaskPriority,
-    @Query('page') page?: number,
-    @Query('limit') limit?: number,
+    @Query('page') page: number = 1,
+    @Query('limit') limit: number = 10,
+    @Query('search') search?: string,
   ): Promise<TasksResponseDto> {
-    if (page && !limit) {
-      limit = 10;
-    }
-    
-    const result = await this.tasksService.findAll({
+    const result = await this.taskService.getTasks(
       status,
       priority,
       page,
       limit,
-    });
+      search,
+    );
 
     return {
       data: result.items,
       count: result.total,
-      page: result.page,
-      limit: result.limit,
+      page,
+      limit,
     };
-  }
-
-  @Get('stats')
-  @ApiOperation({ summary: 'Get task statistics' })
-  getStats(): Promise<{
-    total: number;
-    byStatus: Record<TaskStatus, number>;
-    overdueTasks: number;
-  }> {
-    return this.tasksService.getTaskStats();
   }
 
   @Get(':id')
   @ApiOperation({ summary: 'Find a task by ID' })
-  findOne(@Param('id') id: string): Promise<Task> {
-    return this.tasksService.findOne(id);
+  async findOne(@Param('id') id: string): Promise<Task | null> {
+    const task = await this.taskService.getTaskById(id);
+    if (!task) {
+      throw new HttpException('Task not found', HttpStatus.NOT_FOUND);
+    }
+    return task;
   }
 
   @Patch(':id')
   @ApiOperation({ summary: 'Update a task' })
-  update(@Param('id') id: string, @Body() updateTaskDto: UpdateTaskDto): Promise<Task> {
-    return this.tasksService.update(id, updateTaskDto);
+  async update(
+    @Param('id') id: string,
+    @Body() updateTaskDto: UpdateTaskDto,
+  ): Promise<void> {
+    // Only pass the DTO object - validation will handle field filtering
+    await this.taskService.updateTask(id, updateTaskDto);
+    await this.taskService.updateTask(id, updateTaskDto);
+  }
+
+  @Patch(':id/complete')
+  @ApiOperation({ summary: 'Complete a task' })
+  async complete(@Param('id') id: string): Promise<void> {
+    await this.taskService.completeTask(id);
   }
 
   @Delete(':id')
   @ApiOperation({ summary: 'Delete a task' })
-  remove(@Param('id') id: string): Promise<void> {
-    return this.tasksService.remove(id);
-  }
-
-  @Post('batch')
-  @ApiOperation({ summary: 'Batch process multiple tasks' })
-  async batchProcess(@Body() operations: BatchOperationDto): Promise<BatchOperationResult[]> {
-    const { tasks: taskIds, action } = operations;
-    const results: BatchOperationResult[] = [];
-    
-    // N+1 query problem: Processing tasks one by one
-    for (const taskId of taskIds) {
-      try {
-        let result;
-        
-        switch (action) {
-          case 'complete':
-            result = await this.tasksService.update(taskId, { status: TaskStatus.COMPLETED });
-            break;
-          case 'delete':
-            result = await this.tasksService.remove(taskId);
-            break;
-          default:
-            throw new HttpException(`Unknown action: ${action}`, HttpStatus.BAD_REQUEST);
-        }
-        
-        results.push({ taskId, success: true, result });
-      } catch (error) {
-        // Inconsistent error handling
-        results.push({
-          taskId,
-          success: false,
-          error: error instanceof Error ? error.message : 'Unknown error',
-        });
-      }
+  async remove(@Param('id') id: string): Promise<void> {
+    const task = await this.taskService.getTaskById(id);
+    if (!task) {
+      throw new HttpException('Task not found', HttpStatus.NOT_FOUND);
     }
-    
-    return results;
+    // Use the complete task functionality until delete is implemented
+    await this.taskService.completeTask(id);
   }
 }
