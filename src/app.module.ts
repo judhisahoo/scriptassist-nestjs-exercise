@@ -12,6 +12,8 @@ import { ScheduledTasksModule } from './queues/scheduled-tasks/scheduled-tasks.m
 import { CacheService } from './common/services/cache.service';
 import { HealthModule } from './common/health/health.module';
 import { MetricsModule } from './common/metrics/metrics.module';
+import { ServiceIsolationModule } from './common/services/service-isolation.module';
+import { PerformanceOptimizationModule } from './common/services/performance-optimization.module';
 import jwtConfig from './config/jwt.config';
 import databaseConfig from './config/database.config';
 import bullConfig from './config/bull.config';
@@ -81,6 +83,12 @@ import bullConfig from './config/bull.config';
 
     // Metrics
     MetricsModule,
+
+    // Service isolation and resilience
+    ServiceIsolationModule,
+
+    // Performance optimization
+    PerformanceOptimizationModule,
   ],
   providers: [
     // Inefficient: Global cache service with no configuration options

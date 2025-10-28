@@ -1,191 +1,172 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 
 export interface RetryConfig {
   maxAttempts: number;
   initialDelay: number;
   backoffMultiplier: number;
   maxDelay: number;
-  retryableErrors?: (error: Error) => boolean;
+  retryCondition?: (error: Error) => boolean;
+}
+
+export interface RetryResult<T> {
+  success: boolean;
+  result?: T;
+  error?: Error;
+  attempts: number;
+  totalDelay: number;
 }
 
 @Injectable()
 export class RetryService {
   private readonly logger = new Logger(RetryService.name);
 
+  constructor(private configService: ConfigService) {}
+
   private readonly defaultConfig: RetryConfig = {
     maxAttempts: 3,
     initialDelay: 1000, // 1 second
     backoffMultiplier: 2,
     maxDelay: 30000, // 30 seconds
-    retryableErrors: (error: Error) => {
-      // Retry on network errors, timeouts, and 5xx errors
-      const retryableMessages = [
-        'ECONNREFUSED',
-        'ENOTFOUND',
-        'ETIMEDOUT',
-        'ECONNRESET',
-        'timeout',
-        'network',
-      ];
-      return retryableMessages.some(msg =>
-        error.message.toLowerCase().includes(msg.toLowerCase())
-      );
-    },
   };
 
+  /**
+   * Execute an operation with retry logic
+   */
   async executeWithRetry<T>(
     operation: () => Promise<T>,
     config?: Partial<RetryConfig>,
-    operationName = 'operation',
-  ): Promise<T> {
+  ): Promise<RetryResult<T>> {
     const retryConfig = { ...this.defaultConfig, ...config };
     let lastError: Error;
+    let totalDelay = 0;
 
     for (let attempt = 1; attempt <= retryConfig.maxAttempts; attempt++) {
       try {
         const result = await operation();
-        if (attempt > 1) {
-          this.logger.log(`${operationName} succeeded on attempt ${attempt}`);
-        }
-        return result;
+        return {
+          success: true,
+          result,
+          attempts: attempt,
+          totalDelay,
+        };
       } catch (error) {
         lastError = error as Error;
 
-        // Check if error is retryable
-        const isRetryable = retryConfig.retryableErrors
-          ? retryConfig.retryableErrors(lastError)
-          : true;
-
-        if (!isRetryable || attempt === retryConfig.maxAttempts) {
-          this.logger.error(
-            `${operationName} failed on attempt ${attempt}/${retryConfig.maxAttempts}: ${lastError.message}`,
-          );
-          throw lastError;
+        // Check if we should retry this error
+        if (retryConfig.retryCondition && !retryConfig.retryCondition(lastError)) {
+          this.logger.debug(`Not retrying error (condition not met): ${lastError.message}`);
+          break;
         }
 
-        // Calculate delay with exponential backoff
+        // Don't retry on the last attempt
+        if (attempt === retryConfig.maxAttempts) {
+          break;
+        }
+
+        // Calculate delay for next attempt
         const delay = Math.min(
           retryConfig.initialDelay * Math.pow(retryConfig.backoffMultiplier, attempt - 1),
           retryConfig.maxDelay,
         );
 
+        totalDelay += delay;
+
         this.logger.warn(
-          `${operationName} failed on attempt ${attempt}/${retryConfig.maxAttempts}: ${lastError.message}. Retrying in ${delay}ms...`,
+          `Operation failed (attempt ${attempt}/${retryConfig.maxAttempts}): ${lastError.message}. Retrying in ${delay}ms`,
         );
 
         await this.delay(delay);
       }
     }
 
-    throw lastError!;
+    return {
+      success: false,
+      error: lastError!,
+      attempts: retryConfig.maxAttempts,
+      totalDelay,
+    };
   }
 
+  /**
+   * Execute with circuit breaker integration
+   */
   async executeWithCircuitBreaker<T>(
-    circuitName: string,
     operation: () => Promise<T>,
+    circuitName: string,
     config?: Partial<RetryConfig>,
-    operationName = 'operation',
-  ): Promise<T> {
-    // Import circuit breaker dynamically to avoid circular dependency
-    const { CircuitBreakerService } = await import('./circuit-breaker.service');
+  ): Promise<RetryResult<T>> {
+    // This would integrate with CircuitBreakerService
+    // For now, just use basic retry
+    return this.executeWithRetry(operation, config);
+  }
 
-    // This would need to be injected in a real implementation
-    // For now, we'll create a simple fallback
-    return this.executeWithRetry(operation, config, operationName);
+  /**
+   * Create retry configuration for common scenarios
+   */
+  createConfigForScenario(scenario: string): Partial<RetryConfig> {
+    switch (scenario) {
+      case 'database':
+        return {
+          maxAttempts: 3,
+          initialDelay: 500,
+          backoffMultiplier: 2,
+          maxDelay: 5000,
+          retryCondition: (error) => {
+            // Retry on connection errors, not on constraint violations
+            return error.message.includes('connection') ||
+                   error.message.includes('timeout') ||
+                   error.message.includes('ECONNREFUSED');
+          },
+        };
+
+      case 'external-api':
+        return {
+          maxAttempts: 2,
+          initialDelay: 2000,
+          backoffMultiplier: 1.5,
+          maxDelay: 10000,
+          retryCondition: (error) => {
+            // Retry on network errors and 5xx status codes
+            return error.message.includes('ECONNREFUSED') ||
+                   error.message.includes('timeout') ||
+                   error.message.includes('500') ||
+                   error.message.includes('502') ||
+                   error.message.includes('503') ||
+                   error.message.includes('504');
+          },
+        };
+
+      case 'cache':
+        return {
+          maxAttempts: 2,
+          initialDelay: 100,
+          backoffMultiplier: 2,
+          maxDelay: 1000,
+          retryCondition: (error) => {
+            // Retry on connection errors
+            return error.message.includes('ECONNREFUSED') ||
+                   error.message.includes('timeout');
+          },
+        };
+
+      default:
+        return {};
+    }
+  }
+
+  /**
+   * Execute operation with scenario-based retry
+   */
+  async executeForScenario<T>(
+    scenario: string,
+    operation: () => Promise<T>,
+  ): Promise<RetryResult<T>> {
+    const config = this.createConfigForScenario(scenario);
+    return this.executeWithRetry(operation, config);
   }
 
   private delay(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));
-  }
-
-  // Utility method for common retry scenarios
-  async retryDatabaseOperation<T>(
-    operation: () => Promise<T>,
-    operationName = 'database operation',
-  ): Promise<T> {
-    return this.executeWithRetry(
-      operation,
-      {
-        maxAttempts: 3,
-        initialDelay: 500,
-        backoffMultiplier: 2,
-        maxDelay: 5000,
-        retryableErrors: (error: Error) => {
-          const retryablePatterns = [
-            'connection',
-            'timeout',
-            'deadlock',
-            'lock wait timeout',
-            'ER_LOCK_DEADLOCK',
-            'ER_LOCK_WAIT_TIMEOUT',
-          ];
-          return retryablePatterns.some(pattern =>
-            error.message.toLowerCase().includes(pattern.toLowerCase())
-          );
-        },
-      },
-      operationName,
-    );
-  }
-
-  async retryExternalApiCall<T>(
-    operation: () => Promise<T>,
-    operationName = 'external API call',
-  ): Promise<T> {
-    return this.executeWithRetry(
-      operation,
-      {
-        maxAttempts: 3,
-        initialDelay: 1000,
-        backoffMultiplier: 2,
-        maxDelay: 10000,
-        retryableErrors: (error: Error) => {
-          const retryablePatterns = [
-            'ECONNREFUSED',
-            'ENOTFOUND',
-            'ETIMEDOUT',
-            'ECONNRESET',
-            'timeout',
-            'network',
-            '502',
-            '503',
-            '504',
-            'rate limit',
-          ];
-          return retryablePatterns.some(pattern =>
-            error.message.toLowerCase().includes(pattern.toLowerCase())
-          );
-        },
-      },
-      operationName,
-    );
-  }
-
-  async retryQueueOperation<T>(
-    operation: () => Promise<T>,
-    operationName = 'queue operation',
-  ): Promise<T> {
-    return this.executeWithRetry(
-      operation,
-      {
-        maxAttempts: 5,
-        initialDelay: 2000,
-        backoffMultiplier: 1.5,
-        maxDelay: 30000,
-        retryableErrors: (error: Error) => {
-          const retryablePatterns = [
-            'connection',
-            'timeout',
-            'queue',
-            'redis',
-            'bull',
-          ];
-          return retryablePatterns.some(pattern =>
-            error.message.toLowerCase().includes(pattern.toLowerCase())
-          );
-        },
-      },
-      operationName,
-    );
   }
 }
