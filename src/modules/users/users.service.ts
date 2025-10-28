@@ -40,11 +40,11 @@ export class UsersService {
 
   async update(id: string, updateUserDto: UpdateUserDto): Promise<User> {
     const user = await this.findOne(id);
-    
+
     if (updateUserDto.password) {
       updateUserDto.password = await bcrypt.hash(updateUserDto.password, 10);
     }
-    
+
     this.usersRepository.merge(user, updateUserDto);
     return this.usersRepository.save(user);
   }
@@ -57,4 +57,4 @@ export class UsersService {
   async updateRefreshToken(id: string, refreshToken: string | null): Promise<void> {
     await this.usersRepository.update(id, { refreshToken: refreshToken || undefined });
   }
-} 
+}

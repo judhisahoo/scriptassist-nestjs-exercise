@@ -13,4 +13,4 @@ import { TasksModule } from '../../modules/tasks/tasks.module';
   providers: [TaskProcessorService],
   exports: [TaskProcessorService],
 })
-export class TaskProcessorModule {} 
+export class TaskProcessorModule {}

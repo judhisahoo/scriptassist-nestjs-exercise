@@ -30,7 +30,8 @@ export class HttpExceptionFilter implements ExceptionFilter {
     // Sanitize error message to avoid exposing sensitive info
     let message = exception.message;
     if (typeof exceptionResponse === 'object' && exceptionResponse !== null) {
-      message = (exceptionResponse as any).message || exception.message;
+      message =
+        ((exceptionResponse as Record<string, unknown>).message as string) || exception.message;
     }
 
     // Avoid exposing internal details

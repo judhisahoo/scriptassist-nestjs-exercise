@@ -40,4 +40,4 @@ export class CreateInitialSchema1710752400000 implements MigrationInterface {
     await queryRunner.query(`DROP TABLE IF EXISTS "tasks"`);
     await queryRunner.query(`DROP TABLE IF EXISTS "users"`);
   }
-} 
+}

@@ -35,11 +35,11 @@ export class TasksService {
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
-    
+
     try {
       const task = this.tasksRepository.create(createTaskDto);
       const savedTask = await queryRunner.manager.save(Task, task);
-      
+
       await this.taskQueue.add('task-status-update', {
         taskId: savedTask.id,
         status: savedTask.status,
@@ -65,7 +65,7 @@ export class TasksService {
     limit: number;
   }> {
     const { status, priority, page = 1, limit = 10, search } = params;
-    
+
     // Build optimized query
     const queryBuilder = this.tasksRepository
       .createQueryBuilder('task')
@@ -81,7 +81,7 @@ export class TasksService {
         'task.userId',
       ])
       .orderBy('task.createdAt', 'DESC');
-    
+
     // Apply filters
     if (status) {
       queryBuilder.andWhere('task.status = :status', { status });
@@ -179,13 +179,13 @@ export class TasksService {
       }
 
       await queryRunner.commitTransaction();
-      
+
       // Load relations for return value
       const finalTask = await this.tasksRepository.findOne({
         where: { id },
         relations: ['user'],
       });
-      
+
       if (!finalTask) {
         throw new NotFoundException(`Task with ID ${id} not found after update`);
       }
@@ -204,7 +204,7 @@ export class TasksService {
   async remove(id: string): Promise<void> {
     // Single query delete with existence check
     const result = await this.tasksRepository.delete(id);
-    
+
     if (result.affected === 0) {
       throw new NotFoundException(`Task with ID ${id} not found`);
     }
@@ -266,7 +266,7 @@ export class TasksService {
             name: 'task-status-update',
             data: { taskId: id, status },
           }));
-          
+
           await this.taskQueue.addBulk(jobs);
         }
       }

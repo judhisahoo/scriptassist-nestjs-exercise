@@ -1,99 +1,236 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger, Inject, Optional } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 
-// Inefficient in-memory cache implementation with multiple problems:
-// 1. No distributed cache support (fails in multi-instance deployments)
-// 2. No memory limits or LRU eviction policy
-// 3. No automatic key expiration cleanup (memory leak)
-// 4. No serialization/deserialization handling for complex objects
-// 5. No namespacing to prevent key collisions
+export interface CacheConfig {
+  ttl: number;
+  maxSize?: number;
+  namespace?: string;
+}
+
+export interface CacheStats {
+  hits: number;
+  misses: number;
+  sets: number;
+  deletes: number;
+  clears: number;
+  hitRate: number;
+}
 
 @Injectable()
 export class CacheService {
-  // Using a simple object as cache storage
-  // Problem: Unbounded memory growth with no eviction
-  private cache: Record<string, { value: any; expiresAt: number }> = {};
+  private readonly logger = new Logger(CacheService.name);
+  private cache: Map<string, { value: any; expiresAt: number; lastAccessed: number }> = new Map();
+  private stats: CacheStats = { hits: 0, misses: 0, sets: 0, deletes: 0, clears: 0, hitRate: 0 };
+  private readonly maxSize: number;
+  private readonly defaultTtl: number;
+  private readonly namespace: string;
+  private cleanupInterval: NodeJS.Timeout;
 
-  // Inefficient set operation with no validation
-  async set(key: string, value: any, ttlSeconds = 300): Promise<void> {
-    // Problem: No key validation or sanitization
-    // Problem: Directly stores references without cloning (potential memory issues)
-    // Problem: No error handling for invalid values
-    
-    const expiresAt = Date.now() + ttlSeconds * 1000;
-    
-    // Problem: No namespacing for keys
-    this.cache[key] = {
-      value,
-      expiresAt,
-    };
-    
-    // Problem: No logging or monitoring of cache usage
+  constructor(
+    private configService: ConfigService,
+    @Optional() @Inject('CACHE_CONFIG') private cacheConfig?: CacheConfig,
+  ) {
+    this.maxSize = cacheConfig?.maxSize || this.configService.get('cache.maxSize', 1000);
+    this.defaultTtl = cacheConfig?.ttl || this.configService.get('cache.ttl', 300);
+    this.namespace = cacheConfig?.namespace || this.configService.get('cache.namespace', 'app');
+
+    // Start cleanup interval for expired items
+    this.cleanupInterval = setInterval(() => this.cleanup(), 60000); // Clean every minute
   }
 
-  // Inefficient get operation that doesn't handle errors properly
+  onModuleDestroy() {
+    if (this.cleanupInterval) {
+      clearInterval(this.cleanupInterval);
+    }
+  }
+
+  async set(key: string, value: any, ttlSeconds?: number): Promise<void> {
+    try {
+      const ttl = ttlSeconds || this.defaultTtl;
+      const namespacedKey = this.getNamespacedKey(key);
+      const expiresAt = Date.now() + ttl * 1000;
+
+      // Check size limit and evict if necessary (LRU)
+      if (this.cache.size >= this.maxSize) {
+        this.evictLRU();
+      }
+
+      // Deep clone to prevent reference issues
+      const clonedValue = this.deepClone(value);
+
+      this.cache.set(namespacedKey, {
+        value: clonedValue,
+        expiresAt,
+        lastAccessed: Date.now(),
+      });
+
+      this.stats.sets++;
+      this.updateHitRate();
+
+      this.logger.debug(`Cache set: ${namespacedKey}, TTL: ${ttl}s`);
+    } catch (error) {
+      this.logger.error(`Cache set error for key ${key}:`, error);
+      throw error;
+    }
+  }
+
   async get<T>(key: string): Promise<T | null> {
-    // Problem: No key validation
-    const item = this.cache[key];
-    
-    if (!item) {
+    try {
+      const namespacedKey = this.getNamespacedKey(key);
+      const item = this.cache.get(namespacedKey);
+
+      if (!item) {
+        this.stats.misses++;
+        this.updateHitRate();
+        return null;
+      }
+
+      // Check expiration
+      if (item.expiresAt < Date.now()) {
+        this.cache.delete(namespacedKey);
+        this.stats.misses++;
+        this.updateHitRate();
+        this.logger.debug(`Cache miss (expired): ${namespacedKey}`);
+        return null;
+      }
+
+      // Update last accessed time
+      item.lastAccessed = Date.now();
+      this.stats.hits++;
+      this.updateHitRate();
+
+      // Return deep clone to prevent mutations
+      const clonedValue = this.deepClone(item.value);
+      this.logger.debug(`Cache hit: ${namespacedKey}`);
+      return clonedValue as T;
+    } catch (error) {
+      this.logger.error(`Cache get error for key ${key}:`, error);
+      this.stats.misses++;
+      this.updateHitRate();
       return null;
     }
-    
-    // Problem: Checking expiration on every get (performance issue)
-    // Rather than having a background job to clean up expired items
-    if (item.expiresAt < Date.now()) {
-      // Problem: Inefficient immediate deletion during read operations
-      delete this.cache[key];
-      return null;
-    }
-    
-    // Problem: Returns direct object reference rather than cloning
-    // This can lead to unintended cache modifications when the returned
-    // object is modified by the caller
-    return item.value as T;
   }
 
-  // Inefficient delete operation
   async delete(key: string): Promise<boolean> {
-    // Problem: No validation or error handling
-    const exists = key in this.cache;
-    
-    // Problem: No logging of cache misses for monitoring
-    if (exists) {
-      delete this.cache[key];
-      return true;
+    try {
+      const namespacedKey = this.getNamespacedKey(key);
+      const existed = this.cache.delete(namespacedKey);
+
+      if (existed) {
+        this.stats.deletes++;
+        this.logger.debug(`Cache delete: ${namespacedKey}`);
+      }
+
+      return existed;
+    } catch (error) {
+      this.logger.error(`Cache delete error for key ${key}:`, error);
+      return false;
     }
-    
-    return false;
   }
 
-  // Inefficient cache clearing
   async clear(): Promise<void> {
-    // Problem: Blocking operation that can cause performance issues
-    // on large caches
-    this.cache = {};
-    
-    // Problem: No notification or events when cache is cleared
+    try {
+      this.cache.clear();
+      this.stats.clears++;
+      this.logger.debug('Cache cleared');
+    } catch (error) {
+      this.logger.error('Cache clear error:', error);
+      throw error;
+    }
   }
 
-  // Inefficient method to check if a key exists
-  // Problem: Duplicates logic from the get method
   async has(key: string): Promise<boolean> {
-    const item = this.cache[key];
-    
-    if (!item) {
+    try {
+      const namespacedKey = this.getNamespacedKey(key);
+      const item = this.cache.get(namespacedKey);
+
+      if (!item) {
+        return false;
+      }
+
+      if (item.expiresAt < Date.now()) {
+        this.cache.delete(namespacedKey);
+        return false;
+      }
+
+      return true;
+    } catch (error) {
+      this.logger.error(`Cache has error for key ${key}:`, error);
       return false;
     }
-    
-    // Problem: Repeating expiration logic instead of having a shared helper
-    if (item.expiresAt < Date.now()) {
-      delete this.cache[key];
-      return false;
-    }
-    
-    return true;
   }
-  
-  // Problem: Missing methods for bulk operations and cache statistics
-  // Problem: No monitoring or instrumentation
-} 
+
+  getStats(): CacheStats {
+    return { ...this.stats };
+  }
+
+  getSize(): number {
+    return this.cache.size;
+  }
+
+  private getNamespacedKey(key: string): string {
+    return `${this.namespace}:${key}`;
+  }
+
+  private evictLRU(): void {
+    let oldestKey: string | undefined;
+    let oldestTime = Date.now();
+
+    for (const [key, item] of this.cache) {
+      if (item.lastAccessed < oldestTime) {
+        oldestTime = item.lastAccessed;
+        oldestKey = key;
+      }
+    }
+
+    if (oldestKey) {
+      this.cache.delete(oldestKey);
+      this.logger.debug(`Evicted LRU item: ${oldestKey}`);
+    }
+  }
+
+  private cleanup(): void {
+    const now = Date.now();
+    const expiredKeys: string[] = [];
+
+    for (const [key, item] of this.cache) {
+      if (item.expiresAt < now) {
+        expiredKeys.push(key);
+      }
+    }
+
+    expiredKeys.forEach(key => this.cache.delete(key));
+
+    if (expiredKeys.length > 0) {
+      this.logger.debug(`Cleaned up ${expiredKeys.length} expired cache items`);
+    }
+  }
+
+  private updateHitRate(): void {
+    const total = this.stats.hits + this.stats.misses;
+    this.stats.hitRate = total > 0 ? this.stats.hits / total : 0;
+  }
+
+  private deepClone(obj: any): any {
+    if (obj === null || typeof obj !== 'object') {
+      return obj;
+    }
+
+    if (obj instanceof Date) {
+      return new Date(obj.getTime());
+    }
+
+    if (Array.isArray(obj)) {
+      return obj.map(item => this.deepClone(item));
+    }
+
+    const cloned: any = {};
+    for (const key in obj) {
+      if (obj.hasOwnProperty(key)) {
+        cloned[key] = this.deepClone(obj[key]);
+      }
+    }
+
+    return cloned;
+  }
+}

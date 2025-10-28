@@ -47,4 +47,4 @@ export const tasks = [
     dueDate: new Date(new Date().setHours(new Date().getHours() + 5)), // Due in 5 hours
     userId: '550e8400-e29b-41d4-a716-446655440000', // Admin user
   },
-]; 
+];

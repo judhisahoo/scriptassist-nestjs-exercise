@@ -30,7 +30,7 @@ export class UpdateTaskDto {
   @IsOptional()
   priority?: TaskPriority;
 
-@ApiProperty({
+  @ApiProperty({
     example: '2025-12-31T23:59:59.000Z',
     required: false,
     description: 'Due date in ISO 8601 format (YYYY-MM-DDTHH:mm:ss.SSSZ)',
@@ -38,4 +38,4 @@ export class UpdateTaskDto {
   @IsDateString({ strict: true })
   @IsOptional()
   dueDate?: string;
-} 
+}

@@ -6,20 +6,20 @@ import { TasksController } from './tasks.controller';
 import { Task } from './entities/task.entity';
 import { TaskRepository } from './infrastructure/task.repository';
 import { TaskApplicationService } from './application/task.application.service';
-import { CreateTaskHandler, UpdateTaskHandler, CompleteTaskHandler } from './application/commands/task.handlers';
-import { GetTaskByIdHandler, GetTasksHandler, GetTasksByAssigneeHandler } from './application/queries/task.handlers';
-
-const CommandHandlers = [
+import {
   CreateTaskHandler,
   UpdateTaskHandler,
   CompleteTaskHandler,
-];
-
-const QueryHandlers = [
+} from './application/commands/task.handlers';
+import {
   GetTaskByIdHandler,
   GetTasksHandler,
   GetTasksByAssigneeHandler,
-];
+} from './application/queries/task.handlers';
+
+const CommandHandlers = [CreateTaskHandler, UpdateTaskHandler, CompleteTaskHandler];
+
+const QueryHandlers = [GetTaskByIdHandler, GetTasksHandler, GetTasksByAssigneeHandler];
 
 @Module({
   imports: [
@@ -30,12 +30,7 @@ const QueryHandlers = [
     }),
   ],
   controllers: [TasksController],
-  providers: [
-    TaskRepository,
-    TaskApplicationService,
-    ...CommandHandlers,
-    ...QueryHandlers,
-  ],
+  providers: [TaskRepository, TaskApplicationService, ...CommandHandlers, ...QueryHandlers],
   exports: [TaskApplicationService, TaskRepository],
 })
 export class TasksModule {}

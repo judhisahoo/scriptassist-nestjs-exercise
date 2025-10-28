@@ -8,4 +8,4 @@ export default registerAs('database', () => ({
   database: process.env.DB_DATABASE || 'taskflow',
   synchronize: process.env.NODE_ENV === 'development',
   logging: process.env.NODE_ENV === 'development',
-})); 
+}));

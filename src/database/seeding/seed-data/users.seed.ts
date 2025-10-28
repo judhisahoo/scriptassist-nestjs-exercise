@@ -15,4 +15,4 @@ export const users = [
     password: bcrypt.hashSync('user123', 10),
     role: 'user',
   },
-]; 
+];

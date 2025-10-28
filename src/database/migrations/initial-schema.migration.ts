@@ -53,4 +53,4 @@ export class InitialSchema1615123456789 implements MigrationInterface {
     await queryRunner.query(`DROP TYPE "task_status_enum"`);
     await queryRunner.query(`DROP TABLE "users"`);
   }
-} 
+}

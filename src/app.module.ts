@@ -10,6 +10,8 @@ import { AuthModule } from './modules/auth/auth.module';
 import { TaskProcessorModule } from './queues/task-processor/task-processor.module';
 import { ScheduledTasksModule } from './queues/scheduled-tasks/scheduled-tasks.module';
 import { CacheService } from './common/services/cache.service';
+import { HealthModule } from './common/health/health.module';
+import { MetricsModule } from './common/metrics/metrics.module';
 import jwtConfig from './config/jwt.config';
 import databaseConfig from './config/database.config';
 import bullConfig from './config/bull.config';
@@ -21,7 +23,7 @@ import bullConfig from './config/bull.config';
       isGlobal: true,
       load: [jwtConfig, databaseConfig, bullConfig],
     }),
-    
+
     // Database
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
@@ -38,10 +40,10 @@ import bullConfig from './config/bull.config';
         logging: configService.get('database.logging'),
       }),
     }),
-    
+
     // Scheduling
     ScheduleModule.forRoot(),
-    
+
     // Queue
     BullModule.forRootAsync({
       imports: [ConfigModule],
@@ -53,7 +55,7 @@ import bullConfig from './config/bull.config';
         },
       }),
     }),
-    
+
     // Rate limiting
     ThrottlerModule.forRootAsync({
       imports: [ConfigModule],
@@ -64,25 +66,31 @@ import bullConfig from './config/bull.config';
         ignoreUserAgents: [/googlebot/i],
       }),
     }),
-    
+
     // Feature modules
     UsersModule,
     TasksModule,
     AuthModule,
-    
+
     // Queue processing modules
     TaskProcessorModule,
     ScheduledTasksModule,
+
+    // Health checks
+    HealthModule,
+
+    // Metrics
+    MetricsModule,
   ],
   providers: [
     // Inefficient: Global cache service with no configuration options
     // This creates a single in-memory cache instance shared across all modules
-    CacheService
+    CacheService,
   ],
   exports: [
     // Exporting the cache service makes it available to other modules
     // but creates tight coupling
-    CacheService
-  ]
+    CacheService,
+  ],
 })
-export class AppModule {} 
+export class AppModule {}

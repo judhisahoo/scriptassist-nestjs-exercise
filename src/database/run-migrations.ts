@@ -3,26 +3,26 @@ import dataSource from './data-source';
 
 async function runMigrations() {
   console.log('Starting migration process...');
-  
+
   try {
     // Initialize connection
     await dataSource.initialize();
     console.log('Database connection initialized successfully.');
-    
+
     // Log pending migrations
     const pendingMigrations = await dataSource.showMigrations();
     console.log(`Pending migrations: ${pendingMigrations ? 'Yes' : 'No'}`);
-    
+
     // Run migrations
     console.log('Running migrations...');
     const migrations = await dataSource.runMigrations({ transaction: 'all' });
-    
+
     console.log(`Executed ${migrations.length} migrations:`);
     migrations.forEach(migration => console.log(`- ${migration.name}`));
 
     if (migrations.length === 0) {
       console.log('No migrations were executed. Creating tables directly...');
-      
+
       // Option to force table creation if no migrations ran
       console.log('Creating users table...');
       await dataSource.query(`
@@ -36,7 +36,7 @@ async function runMigrations() {
           "updated_at" TIMESTAMP NOT NULL DEFAULT now()
         )
       `);
-      
+
       console.log('Creating tasks table...');
       await dataSource.query(`
         CREATE TABLE IF NOT EXISTS "tasks" (
@@ -52,7 +52,7 @@ async function runMigrations() {
           CONSTRAINT "fk_user_id" FOREIGN KEY ("user_id") REFERENCES "users" ("id") ON DELETE CASCADE
         )
       `);
-      
+
       console.log('Tables created successfully.');
     }
   } catch (error) {
@@ -68,4 +68,4 @@ async function runMigrations() {
 
 runMigrations()
   .then(() => console.log('Migration process completed.'))
-  .catch(error => console.error('Unhandled error:', error)); 
+  .catch(error => console.error('Unhandled error:', error));

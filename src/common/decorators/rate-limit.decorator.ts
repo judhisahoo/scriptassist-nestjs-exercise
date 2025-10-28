@@ -11,4 +11,4 @@ export const RateLimit = (options: RateLimitOptions) => {
   // Problem: This decorator doesn't actually enforce rate limiting
   // It only sets metadata that is never used by the guard
   return SetMetadata(RATE_LIMIT_KEY, options);
-}; 
+};

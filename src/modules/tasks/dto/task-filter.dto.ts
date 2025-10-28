@@ -8,4 +8,4 @@ export class TaskFilterDto {
   // TODO: Add properties for filtering tasks
   // Example: status, priority, userId, search query, date ranges, etc.
   // Add appropriate decorators for validation and Swagger documentation
-} 
+}

@@ -51,4 +51,4 @@ async function main() {
 }
 
 // Run the seeding
-main(); 
+main();

@@ -56,13 +56,7 @@ export class TasksController {
     @Query('limit') limit: number = 10,
     @Query('search') search?: string,
   ): Promise<TasksResponseDto> {
-    const result = await this.taskService.getTasks(
-      status,
-      priority,
-      page,
-      limit,
-      search,
-    );
+    const result = await this.taskService.getTasks(status, priority, page, limit, search);
 
     return {
       data: result.items,
@@ -84,10 +78,7 @@ export class TasksController {
 
   @Patch(':id')
   @ApiOperation({ summary: 'Update a task' })
-  async update(
-    @Param('id') id: string,
-    @Body() updateTaskDto: UpdateTaskDto,
-  ): Promise<void> {
+  async update(@Param('id') id: string, @Body() updateTaskDto: UpdateTaskDto): Promise<void> {
     // Only pass the DTO object - validation will handle field filtering
     await this.taskService.updateTask(id, updateTaskDto);
     await this.taskService.updateTask(id, updateTaskDto);

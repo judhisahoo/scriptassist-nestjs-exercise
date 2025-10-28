@@ -15,7 +15,7 @@ export class TaskRepository implements ITaskRepository {
 
   async save(taskAggregate: TaskAggregate): Promise<void> {
     const task = this.mapAggregateToEntity(taskAggregate);
-    await this.dataSource.transaction(async (entityManager) => {
+    await this.dataSource.transaction(async entityManager => {
       await entityManager.save(task);
     });
   }
@@ -25,7 +25,7 @@ export class TaskRepository implements ITaskRepository {
     const task = await this.taskRepository
       .createQueryBuilder('task')
       .where('task.id = :id', { id })
-      .cache(false)  // Disable cache to always get fresh data
+      .cache(false) // Disable cache to always get fresh data
       .getOne();
 
     return task ? this.mapEntityToAggregate(task) : null;
@@ -38,7 +38,8 @@ export class TaskRepository implements ITaskRepository {
     limit: number = 10,
     search?: string,
   ): Promise<{ items: Task[]; total: number }> {
-    const queryBuilder = this.taskRepository.createQueryBuilder('task')
+    const queryBuilder = this.taskRepository
+      .createQueryBuilder('task')
       .leftJoinAndSelect('task.user', 'user');
 
     if (status) {
@@ -80,7 +81,7 @@ export class TaskRepository implements ITaskRepository {
   }
 
   async delete(id: string): Promise<void> {
-    await this.dataSource.transaction(async (entityManager) => {
+    await this.dataSource.transaction(async entityManager => {
       await entityManager.delete(Task, id);
     });
   }
@@ -107,13 +108,7 @@ export class TaskRepository implements ITaskRepository {
       task.userId, // Use userId instead of assigneeId
     );
     // Set the current status after creation
-    taskAggregate.updateTask(
-      undefined,
-      undefined,
-      task.status,
-      undefined,
-      undefined
-    );
+    taskAggregate.updateTask(undefined, undefined, task.status, undefined, undefined);
     return taskAggregate;
   }
 }

@@ -7,7 +7,7 @@ import { ConfigService } from '@nestjs/config';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
-  
+
   // Global validation pipe
   app.useGlobalPipes(
     new ValidationPipe({
@@ -41,4 +41,4 @@ async function bootstrap() {
   console.log(`Application running on: http://localhost:${port}`);
   console.log(`Swagger documentation: http://localhost:${port}/api`);
 }
-bootstrap(); 
+bootstrap();

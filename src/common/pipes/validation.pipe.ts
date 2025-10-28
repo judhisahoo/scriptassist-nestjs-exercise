@@ -8,22 +8,22 @@ export class ValidationPipe implements PipeTransform<any> {
     if (!metatype || !this.toValidate(metatype)) {
       return value;
     }
-    
+
     const object = plainToInstance(metatype, value);
     const errors = await validate(object);
-    
+
     if (errors.length > 0) {
       const messages = errors.map(error => {
         const constraints = error.constraints || {};
         return Object.values(constraints).join(', ');
       });
-      
+
       throw new BadRequestException({
         message: 'Validation failed',
         errors: messages,
       });
     }
-    
+
     return object;
   }
 
@@ -31,4 +31,4 @@ export class ValidationPipe implements PipeTransform<any> {
     const types: Function[] = [String, Boolean, Number, Array, Object];
     return !types.includes(metatype);
   }
-} 
+}

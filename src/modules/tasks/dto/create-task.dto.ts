@@ -8,13 +8,17 @@ export class CreateTaskDto {
   @ApiProperty({ example: 'Complete project documentation' })
   @IsString()
   @IsNotEmpty()
-  @Transform(({ value }) => value?.trim().replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, ''))
+  @Transform(({ value }) =>
+    value?.trim().replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, ''),
+  )
   title: string;
 
   @ApiProperty({ example: 'Add details about API endpoints and data models', required: false })
   @IsString()
   @IsOptional()
-  @Transform(({ value }) => value?.trim().replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, ''))
+  @Transform(({ value }) =>
+    value?.trim().replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, ''),
+  )
   description?: string;
 
   @ApiProperty({ enum: TaskStatus, example: TaskStatus.PENDING, required: false })
@@ -36,4 +40,4 @@ export class CreateTaskDto {
   @IsUUID()
   @IsOptional()
   userId?: string;
-} 
+}

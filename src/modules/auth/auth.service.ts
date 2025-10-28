@@ -18,13 +18,13 @@ export class AuthService {
     const { email, password } = loginDto;
 
     const user = await this.usersService.findByEmail(email);
-    
+
     if (!user) {
       throw new UnauthorizedException('Invalid email');
     }
 
     const passwordValid = await bcrypt.compare(password, user.password);
-    
+
     if (!passwordValid) {
       throw new UnauthorizedException('Invalid password');
     }
@@ -32,7 +32,7 @@ export class AuthService {
     const payload = {
       sub: user.id,
       email: user.email,
-      role: user.role
+      role: user.role,
     };
 
     const accessToken = this.generateAccessToken(payload);
@@ -63,7 +63,7 @@ export class AuthService {
     const payload = {
       sub: user.id,
       email: user.email,
-      role: user.role
+      role: user.role,
     };
 
     const accessToken = this.generateAccessToken(payload);
@@ -97,11 +97,11 @@ export class AuthService {
 
   async validateUser(userId: string): Promise<any> {
     const user = await this.usersService.findOne(userId);
-    
+
     if (!user) {
       return null;
     }
-    
+
     return user;
   }
 
@@ -120,7 +120,7 @@ export class AuthService {
       const newPayload = {
         sub: user.id,
         email: user.email,
-        role: user.role
+        role: user.role,
       };
 
       const newAccessToken = this.generateAccessToken(newPayload);
@@ -144,4 +144,4 @@ export class AuthService {
     }
     return requiredRoles.includes(user.role);
   }
-} 
+}

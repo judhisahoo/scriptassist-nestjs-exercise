@@ -18,4 +18,4 @@ import { Task } from '@modules/tasks/entities/task.entity';
   providers: [OverdueTasksService],
   exports: [OverdueTasksService],
 })
-export class ScheduledTasksModule {} 
+export class ScheduledTasksModule {}

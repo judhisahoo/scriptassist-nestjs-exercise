@@ -5,11 +5,7 @@ import {
   UpdateTaskCommand,
   CompleteTaskCommand,
 } from './commands/task.commands';
-import {
-  GetTaskByIdQuery,
-  GetTasksQuery,
-  GetTasksByAssigneeQuery,
-} from './queries/task.queries';
+import { GetTaskByIdQuery, GetTasksQuery, GetTasksByAssigneeQuery } from './queries/task.queries';
 import { Task } from '../entities/task.entity';
 import { CreateTaskDto } from '../dto/create-task.dto';
 import { UpdateTaskDto } from '../dto/update-task.dto';
@@ -56,17 +52,10 @@ export class TaskApplicationService {
     limit?: number,
     search?: string,
   ): Promise<{ items: Task[]; total: number }> {
-    return this.queryBus.execute(
-      new GetTasksQuery(status, priority, page, limit, search),
-    );
+    return this.queryBus.execute(new GetTasksQuery(status, priority, page, limit, search));
   }
 
-  async getTasksByAssignee(
-    assigneeId: string | null,
-    status?: TaskStatus,
-  ): Promise<Task[]> {
-    return this.queryBus.execute(
-      new GetTasksByAssigneeQuery(assigneeId, status),
-    );
+  async getTasksByAssignee(assigneeId: string | null, status?: TaskStatus): Promise<Task[]> {
+    return this.queryBus.execute(new GetTasksByAssigneeQuery(assigneeId, status));
   }
 }

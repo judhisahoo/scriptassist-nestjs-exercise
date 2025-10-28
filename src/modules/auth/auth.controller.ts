@@ -24,4 +24,4 @@ export class AuthController {
   refresh(@Body() refreshDto: RefreshDto) {
     return this.authService.refresh(refreshDto.refreshToken);
   }
-} 
+}

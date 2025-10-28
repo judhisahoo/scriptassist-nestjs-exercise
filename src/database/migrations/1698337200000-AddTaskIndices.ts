@@ -8,7 +8,7 @@ export class AddTaskIndices1698337200000 implements MigrationInterface {
       new TableIndex({
         name: 'IDX_TASKS_STATUS',
         columnNames: ['status'],
-      })
+      }),
     );
 
     // Add index for priority filtering
@@ -17,7 +17,7 @@ export class AddTaskIndices1698337200000 implements MigrationInterface {
       new TableIndex({
         name: 'IDX_TASKS_PRIORITY',
         columnNames: ['priority'],
-      })
+      }),
     );
 
     // Add index for due date queries (overdue tasks)
@@ -26,7 +26,7 @@ export class AddTaskIndices1698337200000 implements MigrationInterface {
       new TableIndex({
         name: 'IDX_TASKS_DUE_DATE',
         columnNames: ['due_date'],
-      })
+      }),
     );
 
     // Add composite index for status + due date (commonly queried together)
@@ -35,7 +35,7 @@ export class AddTaskIndices1698337200000 implements MigrationInterface {
       new TableIndex({
         name: 'IDX_TASKS_STATUS_DUE_DATE',
         columnNames: ['status', 'due_date'],
-      })
+      }),
     );
 
     // Add index for text search
@@ -44,7 +44,7 @@ export class AddTaskIndices1698337200000 implements MigrationInterface {
       new TableIndex({
         name: 'IDX_TASKS_TITLE_DESC',
         columnNames: ['title', 'description'],
-      })
+      }),
     );
   }
 
