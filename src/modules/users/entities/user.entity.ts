@@ -31,7 +31,7 @@ export class User {
   @Column({ default: 'user' })
   role: string;
 
-  @OneToMany(() => Task, task => task.user)
+  @OneToMany('Task', (task: Task) => task.user)
   tasks: Task[];
 
   @CreateDateColumn({ name: 'created_at' })

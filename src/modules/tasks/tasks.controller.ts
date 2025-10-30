@@ -81,7 +81,6 @@ export class TasksController {
   async update(@Param('id') id: string, @Body() updateTaskDto: UpdateTaskDto): Promise<void> {
     // Only pass the DTO object - validation will handle field filtering
     await this.taskService.updateTask(id, updateTaskDto);
-    await this.taskService.updateTask(id, updateTaskDto);
   }
 
   @Patch(':id/complete')

@@ -42,7 +42,7 @@ export class Task {
   @Column({ name: 'user_id', nullable: true })
   userId: string | null;
 
-  @ManyToOne(() => User, user => user.tasks)
+  @ManyToOne('User', (user: User) => user.tasks)
   @JoinColumn({ name: 'user_id' })
   user: User;
 

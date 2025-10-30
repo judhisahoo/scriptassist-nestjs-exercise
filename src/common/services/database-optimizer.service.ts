@@ -308,6 +308,11 @@ export class DatabaseOptimizerService implements OnModuleInit {
 
   private async checkTableFragmentation() {
     // Check for table fragmentation and suggest reorganization
+    // Only run for PostgreSQL databases
+    if (this.dataSource.options.type !== 'postgres') {
+      return;
+    }
+
     try {
       const result = await this.dataSource.manager.query(`
         SELECT schemaname, tablename, n_dead_tup, n_live_tup
@@ -327,7 +332,7 @@ export class DatabaseOptimizerService implements OnModuleInit {
         });
       }
     } catch (error) {
-      // Ignore errors if pg_stat_user_tables is not available
+      // Ignore errors if pg_stat_user_tables is not available or stats not collected
     }
   }
 
