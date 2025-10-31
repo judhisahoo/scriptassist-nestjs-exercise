@@ -2,43 +2,97 @@ import { Injectable, Logger } from '@nestjs/common';
 import { DataSource, EntityManager, QueryRunner } from 'typeorm';
 import { DistributedLockService } from './distributed-lock.service';
 
+/**
+ * Represents a participant in a two-phase commit (2PC) distributed transaction.
+ * Each participant must implement prepare, commit, and rollback operations.
+ */
 export interface TransactionParticipant {
+  /** Unique name identifier for the participant */
   name: string;
+  /** Prepares the participant for the transaction (Phase 1 of 2PC) */
   prepare: (context: any) => Promise<void>;
+  /** Commits the participant's changes (Phase 2 of 2PC) */
   commit: (context: any) => Promise<void>;
+  /** Rolls back the participant's changes on transaction failure */
   rollback: (context: any) => Promise<void>;
 }
 
+/**
+ * Represents a step in a Saga distributed transaction pattern.
+ * Each step has an execute operation and a compensating action for rollback.
+ */
 export interface SagaStep {
+  /** Unique name identifier for the saga step */
   name: string;
+  /** Executes the forward operation of this step */
   execute: (context: any) => Promise<any>;
+  /** Compensates (undoes) the effects of this step on failure */
   compensate: (context: any) => Promise<void>;
 }
 
+/**
+ * Configuration options for distributed transaction execution.
+ * Supports different transaction patterns and isolation levels.
+ */
 export interface DistributedTransactionOptions {
+  /** Maximum time in milliseconds for the transaction to complete */
   timeout?: number;
+  /** Database isolation level for the transaction */
   isolationLevel?: 'READ UNCOMMITTED' | 'READ COMMITTED' | 'REPEATABLE READ' | 'SERIALIZABLE';
+  /** List of participants for two-phase commit transactions */
   participants?: TransactionParticipant[];
+  /** List of steps for saga pattern transactions */
   sagaSteps?: SagaStep[];
 }
 
+/**
+ * Internal context object passed through transaction operations.
+ * Contains transaction metadata and shared state between participants/steps.
+ */
 interface TransactionContext {
+  /** Unique identifier for the transaction */
   transactionId: string;
+  /** Timestamp when the transaction started */
   startTime: number;
+  /** Additional context data shared between transaction participants */
   [key: string]: any;
 }
 
+/**
+ * Service for managing distributed transactions across multiple services and databases.
+ * Supports Two-Phase Commit (2PC), Saga pattern, and eventual consistency patterns.
+ *
+ * @remarks
+ * This service provides:
+ * - Two-Phase Commit (2PC) for strong consistency across participants
+ * - Saga pattern for long-running transactions with compensation
+ * - Database transactions with distributed locking
+ * - Eventual consistency for cross-service operations with retry logic
+ */
 @Injectable()
 export class DistributedTransactionService {
+  /** Logger instance for transaction operations */
   private readonly logger = new Logger(DistributedTransactionService.name);
 
+  /**
+   * Creates an instance of DistributedTransactionService.
+   *
+   * @param dataSource - TypeORM data source for database operations
+   * @param distributedLockService - Service for distributed locking coordination
+   */
   constructor(
     private dataSource: DataSource,
     private distributedLockService: DistributedLockService,
   ) {}
 
   /**
-   * Execute distributed transaction using Two-Phase Commit (2PC)
+   * Executes a distributed transaction using the Two-Phase Commit (2PC) protocol.
+   * Ensures atomicity across multiple participants with prepare and commit phases.
+   *
+   * @param operation - The main operation to execute after successful 2PC
+   * @param options - Configuration options for the transaction
+   * @returns The result of the main operation
+   * @throws Error if any participant fails during prepare or commit phases
    */
   async executeTwoPhaseCommit<T>(
     operation: (context: any) => Promise<T>,
@@ -78,7 +132,13 @@ export class DistributedTransactionService {
   }
 
   /**
-   * Execute distributed transaction using Saga pattern
+   * Executes a distributed transaction using the Saga pattern.
+   * Each step is executed sequentially, with compensation actions for rollback on failure.
+   *
+   * @param sagaSteps - Array of saga steps to execute in order
+   * @param options - Configuration options for the saga execution
+   * @returns Context object containing results from all executed steps
+   * @throws Error if any step fails (compensations are executed automatically)
    */
   async executeSaga<T>(
     sagaSteps: SagaStep[],
@@ -129,13 +189,22 @@ export class DistributedTransactionService {
   }
 
   /**
-   * Execute operation with database transaction and distributed coordination
+   * Executes an operation within a database transaction with optional distributed locking.
+   * Combines TypeORM transaction management with distributed coordination primitives.
+   *
+   * @param operation - Function to execute within the transaction context
+   * @param options - Transaction configuration including isolation level and locking
+   * @returns The result of the operation function
+   * @throws Error if the operation fails or lock acquisition fails
    */
   async executeWithDatabaseTransaction<T>(
     operation: (entityManager: EntityManager, context: any) => Promise<T>,
     options: {
+      /** Database isolation level for the transaction */
       isolationLevel?: 'READ UNCOMMITTED' | 'READ COMMITTED' | 'REPEATABLE READ' | 'SERIALIZABLE';
+      /** Optional distributed lock key to acquire before transaction */
       distributedLock?: string;
+      /** Maximum time in milliseconds for the operation */
       timeout?: number;
     } = {},
   ): Promise<T> {
@@ -191,16 +260,27 @@ export class DistributedTransactionService {
   }
 
   /**
-   * Execute cross-service transaction with eventual consistency
+   * Executes cross-service operations with eventual consistency and retry logic.
+   * Operations are attempted with retries, and compensations are executed on failures.
+   *
+   * @param operations - Array of service operations with optional compensation functions
+   * @param options - Configuration for timeout and retry behavior
+   * @returns Context object containing results from successful operations
+   * @throws Error if any operation fails after all retry attempts
    */
   async executeEventualConsistentTransaction<T>(
     operations: Array<{
+      /** Name identifier for the service */
       service: string;
+      /** The operation to execute on the service */
       operation: () => Promise<any>;
+      /** Optional compensation function to undo the operation on failure */
       compensate?: () => Promise<void>;
     }>,
     options: {
+      /** Maximum time in milliseconds for all operations */
       timeout?: number;
+      /** Number of retry attempts per operation */
       retryAttempts?: number;
     } = {},
   ): Promise<T> {
@@ -271,7 +351,14 @@ export class DistributedTransactionService {
   }
 
   /**
-   * Create transaction participant for 2PC
+   * Factory method to create a transaction participant for 2PC transactions.
+   * Simplifies the creation of participants with proper function signatures.
+   *
+   * @param name - Unique name for the participant
+   * @param prepareFn - Function called during the prepare phase
+   * @param commitFn - Function called during the commit phase
+   * @param rollbackFn - Function called during rollback
+   * @returns A properly configured TransactionParticipant object
    */
   createParticipant(
     name: string,
@@ -288,7 +375,13 @@ export class DistributedTransactionService {
   }
 
   /**
-   * Create saga step
+   * Factory method to create a saga step with execute and compensate functions.
+   * Simplifies the creation of saga steps with proper function signatures.
+   *
+   * @param name - Unique name for the saga step
+   * @param executeFn - Function to execute the forward operation
+   * @param compensateFn - Function to compensate (undo) the operation on failure
+   * @returns A properly configured SagaStep object
    */
   createSagaStep(
     name: string,
@@ -302,6 +395,16 @@ export class DistributedTransactionService {
     };
   }
 
+  /**
+   * Executes the prepare phase of 2PC for all participants.
+   * All participants must successfully prepare before commit phase begins.
+   *
+   * @private
+   * @param participants - Array of transaction participants
+   * @param context - Transaction context shared across participants
+   * @param timeout - Maximum time allowed for prepare phase
+   * @throws Error if any participant fails to prepare or timeout occurs
+   */
   private async preparePhase(
     participants: TransactionParticipant[],
     context: any,
@@ -325,6 +428,15 @@ export class DistributedTransactionService {
     }
   }
 
+  /**
+   * Executes the commit phase of 2PC for all participants.
+   * All participants that successfully prepared are now committed.
+   *
+   * @private
+   * @param participants - Array of transaction participants
+   * @param context - Transaction context shared across participants
+   * @throws Error if any participant fails to commit
+   */
   private async commitPhase(
     participants: TransactionParticipant[],
     context: any,
@@ -343,6 +455,14 @@ export class DistributedTransactionService {
     }
   }
 
+  /**
+   * Executes the rollback phase of 2PC for all participants.
+   * Called when any participant fails during prepare or commit phases.
+   *
+   * @private
+   * @param participants - Array of transaction participants
+   * @param context - Transaction context shared across participants
+   */
   private async rollbackPhase(
     participants: TransactionParticipant[],
     context: any,
@@ -360,24 +480,51 @@ export class DistributedTransactionService {
     }
   }
 
+  /**
+   * Generates a unique transaction identifier for tracking distributed transactions.
+   *
+   * @private
+   * @returns Unique transaction ID string
+   */
   private generateTransactionId(): string {
     return `txn_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   }
 
+  /**
+   * Generates a unique instance identifier for this service instance.
+   *
+   * @private
+   * @returns Unique instance ID string
+   */
   private getInstanceId(): string {
     return `instance_${process.pid}_${Date.now()}`;
   }
 
+  /**
+   * Maps isolation level strings to database-specific values.
+   * Currently supports standard SQL isolation levels.
+   *
+   * @private
+   * @param level - Isolation level string
+   * @returns Mapped isolation level value
+   */
   private mapIsolationLevel(level: string): any {
     const mapping: Record<string, string> = {
       'READ UNCOMMITTED': 'READ UNCOMMITTED',
       'READ COMMITTED': 'READ COMMITTED',
       'REPEATABLE READ': 'REPEATABLE READ',
-      'SERIALIZABLE': 'SERIALIZABLE',
+      SERIALIZABLE: 'SERIALIZABLE',
     };
     return mapping[level] || 'READ COMMITTED';
   }
 
+  /**
+   * Creates a promise-based delay for retry mechanisms and timeouts.
+   *
+   * @private
+   * @param ms - Delay duration in milliseconds
+   * @returns Promise that resolves after the specified delay
+   */
   private delay(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));
   }

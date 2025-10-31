@@ -2,12 +2,23 @@ import { ExceptionFilter, Catch, ArgumentsHost, HttpException, Logger } from '@n
 import { Request, Response } from 'express';
 import { ConfigService } from '@nestjs/config';
 
+/**
+ * Global HTTP exception filter for standardized error responses
+ * Catches all HttpException instances and formats them consistently
+ * Provides different logging levels for development vs production
+ * Sanitizes error messages to prevent information leakage
+ */
 @Catch(HttpException)
 export class HttpExceptionFilter implements ExceptionFilter {
   private readonly logger = new Logger(HttpExceptionFilter.name);
 
   constructor(private configService: ConfigService) {}
 
+  /**
+   * Catches and processes HTTP exceptions
+   * @param exception - The HttpException that was thrown
+   * @param host - ArgumentsHost for accessing request/response context
+   */
   catch(exception: HttpException, host: ArgumentsHost) {
     const ctx = host.switchToHttp();
     const response = ctx.getResponse<Response>();
@@ -17,7 +28,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
 
     const isDevelopment = this.configService.get('NODE_ENV') === 'development';
 
-    // Log error with stack in development, without in production
+    // Log error with stack trace in development, minimal logging in production
     if (isDevelopment) {
       this.logger.error(
         `HTTP Exception: ${exception.message}`,
@@ -27,18 +38,20 @@ export class HttpExceptionFilter implements ExceptionFilter {
       this.logger.error(`HTTP Exception: ${exception.message}`);
     }
 
-    // Sanitize error message to avoid exposing sensitive info
+    // Extract and sanitize error message
     let message = exception.message;
     if (typeof exceptionResponse === 'object' && exceptionResponse !== null) {
+      // Handle structured error responses (e.g., from ValidationPipe)
       message =
         ((exceptionResponse as Record<string, unknown>).message as string) || exception.message;
     }
 
-    // Avoid exposing internal details
+    // Security: Prevent exposure of sensitive information in error messages
     if (message.includes('password') || message.includes('token') || message.includes('secret')) {
       message = 'An error occurred';
     }
 
+    // Return standardized error response
     response.status(status).json({
       success: false,
       statusCode: status,

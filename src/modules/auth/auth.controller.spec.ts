@@ -6,16 +6,35 @@ import { LoginDto } from './dto/login.dto';
 import { RefreshDto } from './dto/refresh.dto';
 import { TestUtils } from '../../../test/jest-setup';
 
+/**
+ * Test suite for AuthController
+ * Tests authentication endpoints including login, registration, and token refresh
+ *
+ * @description
+ * This test suite covers:
+ * - User registration with various scenarios
+ * - User login with valid and invalid credentials
+ * - JWT token refresh functionality
+ * - Error handling and edge cases
+ * - Controller instantiation and dependency injection
+ */
 describe('AuthController', () => {
+  /** Controller instance under test */
   let controller: AuthController;
+
+  /** Mocked AuthService for testing */
   let authService: jest.Mocked<AuthService>;
 
+  /** Mock implementation of AuthService methods */
   const mockAuthService = {
     register: jest.fn(),
     login: jest.fn(),
     refresh: jest.fn(),
   };
 
+  /**
+   * Setup test module and dependencies before each test
+   */
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [AuthController],
@@ -31,6 +50,9 @@ describe('AuthController', () => {
     authService = module.get(AuthService);
   });
 
+  /**
+   * Cleanup after each test to prevent test interference
+   */
   afterEach(() => {
     jest.clearAllMocks();
   });

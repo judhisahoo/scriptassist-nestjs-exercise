@@ -3,31 +3,79 @@ import { ConfigService } from '@nestjs/config';
 import Redis from 'ioredis';
 import { DistributedLockService } from './distributed-lock.service';
 
+/**
+ * Information about a cluster instance for horizontal scaling.
+ * Contains connection details, lifecycle information, and runtime metadata.
+ */
 export interface InstanceInfo {
+  /** Unique identifier for the instance */
   id: string;
+  /** Hostname or IP address of the instance */
   host: string;
+  /** Port number the instance is listening on */
   port: number;
+  /** Timestamp when the instance started */
   startTime: number;
+  /** Timestamp of the last heartbeat from this instance */
   lastHeartbeat: number;
+  /** Current operational status of the instance */
   status: 'active' | 'inactive' | 'shutting_down';
+  /** Additional metadata about the instance (version, memory usage, etc.) */
   metadata: Record<string, any>;
 }
 
+/**
+ * Strategy for selecting instances in a load-balanced cluster.
+ * Defines how to choose which instance should handle a request.
+ */
 export interface LoadBalancingStrategy {
+  /** Unique name identifier for the strategy */
   name: string;
+  /** Function that selects an instance from the available instances */
   selectInstance: (instances: InstanceInfo[], context?: any) => InstanceInfo | null;
 }
 
+/**
+ * Service for managing horizontal scaling in a distributed cluster.
+ * Handles instance registration, load balancing, leader election, and cluster coordination.
+ *
+ * @remarks
+ * This service provides:
+ * - Automatic instance registration and heartbeat monitoring
+ * - Load balancing across cluster instances
+ * - Leader election for coordinated operations
+ * - Cluster statistics and health monitoring
+ * - Graceful shutdown coordination
+ */
 @Injectable()
 export class HorizontalScalingService implements OnModuleInit, OnModuleDestroy {
+  /** Logger instance for horizontal scaling operations */
   private readonly logger = new Logger(HorizontalScalingService.name);
+
+  /** Redis client for cluster coordination */
   private redisClient: Redis;
+
+  /** Unique identifier for this instance */
   private instanceId: string;
+
+  /** Interval for sending heartbeat signals */
   private heartbeatInterval: NodeJS.Timeout;
+
+  /** Redis key for this instance's data */
   private instanceKey: string;
+
+  /** Redis key for the set of active instances */
   private instancesKey: string;
+
+  /** Map of registered load balancing strategies */
   private loadBalancingStrategies: Map<string, LoadBalancingStrategy> = new Map();
 
+  /**
+   * Creates an instance of HorizontalScalingService.
+   *
+   * @param configService - Service for accessing application configuration
+   * @param distributedLockService - Service for distributed locking operations
+   */
   constructor(
     private configService: ConfigService,
     private distributedLockService: DistributedLockService,
@@ -57,7 +105,10 @@ export class HorizontalScalingService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Register this instance with the cluster
+   * Registers this instance with the cluster by storing instance information in Redis.
+   * Sets up automatic expiration and adds the instance to the active instances set.
+   *
+   * @private
    */
   private async registerInstance() {
     const instanceInfo: InstanceInfo = {
@@ -92,7 +143,10 @@ export class HorizontalScalingService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Unregister this instance from the cluster
+   * Removes this instance from the cluster by deleting its data from Redis.
+   * Cleans up both the instance record and the active instances set.
+   *
+   * @private
    */
   private async unregisterInstance() {
     try {
@@ -105,7 +159,10 @@ export class HorizontalScalingService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Start heartbeat to maintain instance registration
+   * Starts the heartbeat mechanism to maintain instance registration.
+   * Sends periodic updates to Redis to indicate the instance is still active.
+   *
+   * @private
    */
   private startHeartbeat() {
     this.heartbeatInterval = setInterval(async () => {
@@ -118,7 +175,10 @@ export class HorizontalScalingService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Update heartbeat timestamp
+   * Updates the heartbeat timestamp and refreshes instance metadata.
+   * Ensures the instance remains registered in the cluster by updating its TTL.
+   *
+   * @private
    */
   private async updateHeartbeat() {
     try {
@@ -140,7 +200,10 @@ export class HorizontalScalingService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Get all active instances
+   * Retrieves all currently active instances in the cluster.
+   * Filters out instances that haven't sent heartbeats recently (stale instances).
+   *
+   * @returns Array of active InstanceInfo objects
    */
   async getActiveInstances(): Promise<InstanceInfo[]> {
     try {
@@ -172,7 +235,12 @@ export class HorizontalScalingService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Select instance using load balancing strategy
+   * Selects an instance using the specified load balancing strategy.
+   * Falls back to round-robin if the requested strategy is not available.
+   *
+   * @param strategyName - Name of the load balancing strategy to use
+   * @param context - Optional context data for strategy selection
+   * @returns Selected InstanceInfo or null if no instances are available
    */
   async selectInstance(
     strategyName: string = 'round-robin',
@@ -198,7 +266,10 @@ export class HorizontalScalingService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Register custom load balancing strategy
+   * Registers a custom load balancing strategy for instance selection.
+   * Strategies can be used to implement different load distribution algorithms.
+   *
+   * @param strategy - The load balancing strategy to register
    */
   registerStrategy(strategy: LoadBalancingStrategy) {
     this.loadBalancingStrategies.set(strategy.name, strategy);
@@ -206,12 +277,19 @@ export class HorizontalScalingService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Get instance statistics
+   * Retrieves comprehensive statistics about the cluster instances.
+   * Provides insights into cluster health, resource usage, and instance distribution.
+   *
+   * @returns Object containing cluster statistics including instance counts and resource usage
    */
   async getClusterStats(): Promise<{
+    /** Total number of registered instances */
     totalInstances: number;
+    /** Number of currently active instances */
     activeInstances: number;
+    /** Average uptime of all instances in milliseconds */
     averageUptime: number;
+    /** Memory usage statistics across the cluster */
     memoryUsage: { total: number; average: number };
   }> {
     const instances = await this.getActiveInstances();
@@ -240,7 +318,11 @@ export class HorizontalScalingService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Broadcast message to all instances
+   * Broadcasts a message to all active instances in the cluster.
+   * Uses Redis pub/sub for efficient message distribution.
+   *
+   * @param channel - The broadcast channel name
+   * @param message - The message payload to broadcast
    */
   async broadcastMessage(channel: string, message: any): Promise<void> {
     try {
@@ -252,7 +334,11 @@ export class HorizontalScalingService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Send message to specific instance
+   * Sends a message to a specific instance in the cluster.
+   * Messages are stored temporarily in Redis with TTL for the target instance to retrieve.
+   *
+   * @param instanceId - The ID of the target instance
+   * @param message - The message payload to send
    */
   async sendMessageToInstance(instanceId: string, message: any): Promise<void> {
     try {
@@ -265,7 +351,10 @@ export class HorizontalScalingService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Check if current instance is the leader
+   * Checks if the current instance is the elected leader of the cluster.
+   * Leadership is determined by a Redis key that indicates the current leader.
+   *
+   * @returns True if this instance is the leader, false otherwise
    */
   async isLeader(): Promise<boolean> {
     try {
@@ -280,7 +369,10 @@ export class HorizontalScalingService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Attempt to become cluster leader
+   * Attempts to become the leader of the cluster using distributed locking.
+   * Only one instance can successfully become leader at a time.
+   *
+   * @returns True if leadership was acquired, false otherwise
    */
   async attemptLeadership(): Promise<boolean> {
     const lockKey = 'cluster:leadership';
@@ -308,7 +400,8 @@ export class HorizontalScalingService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Graceful shutdown preparation
+   * Prepares the instance for graceful shutdown by updating its status.
+   * Allows other instances to stop routing work to this instance during shutdown.
    */
   async prepareShutdown(): Promise<void> {
     this.logger.log('Preparing for graceful shutdown');

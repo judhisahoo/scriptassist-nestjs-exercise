@@ -7,114 +7,213 @@ import { AdvancedCacheService } from './advanced-cache.service';
 import { RateLimiterService } from './rate-limiter.service';
 import { AsyncProcessorService } from './async-processor.service';
 
+/**
+ * Comprehensive system performance metrics collected at regular intervals.
+ * Includes response times, throughput, error rates, and resource utilization.
+ */
 export interface SystemMetrics {
+  /** Timestamp when metrics were collected */
   timestamp: number;
+  /** Response time percentiles and averages in milliseconds */
   responseTime: {
+    /** 50th percentile response time */
     p50: number;
+    /** 95th percentile response time */
     p95: number;
+    /** 99th percentile response time */
     p99: number;
+    /** Average response time */
     average: number;
   };
+  /** Request throughput metrics */
   throughput: {
+    /** Requests processed per second */
     requestsPerSecond: number;
+    /** Requests processed per minute */
     requestsPerMinute: number;
+    /** Total requests in the measurement period */
     totalRequests: number;
   };
+  /** Error rates by component and overall */
   errorRates: {
+    /** HTTP error rate percentage */
     httpErrors: number;
+    /** Database error rate percentage */
     databaseErrors: number;
+    /** Cache error rate percentage */
     cacheErrors: number;
+    /** Overall error rate percentage */
     overall: number;
   };
+  /** System resource utilization percentages */
   resourceUsage: {
+    /** CPU utilization percentage */
     cpu: number;
+    /** Memory utilization percentage */
     memory: number;
+    /** Disk utilization percentage */
     disk: number;
+    /** Network utilization percentage */
     network: number;
   };
+  /** Queue processing metrics */
   queueMetrics: {
+    /** Number of active processing queues */
     activeQueues: number;
+    /** Number of tasks waiting in queues */
     queuedTasks: number;
+    /** Rate of task processing per second */
     processingRate: number;
   };
+  /** Cache performance metrics */
   cacheMetrics: {
+    /** Cache hit rate percentage */
     hitRate: number;
+    /** Cache memory usage percentage */
     memoryUsage: number;
+    /** Cache eviction rate per second */
     evictionRate: number;
   };
+  /** Database performance metrics */
   databaseMetrics: {
+    /** Database connection pool utilization percentage */
     connectionPoolUtilization: number;
+    /** Number of slow queries detected */
     slowQueries: number;
+    /** Number of active database connections */
     activeConnections: number;
   };
 }
 
+/**
+ * Performance alert generated when system metrics exceed predefined thresholds.
+ * Alerts are tracked and can be resolved when issues are addressed.
+ */
 export interface PerformanceAlert {
+  /** Unique identifier for the alert */
   id: string;
+  /** Severity level of the alert */
   type: 'warning' | 'error' | 'critical';
+  /** System component that triggered the alert */
   component: string;
+  /** Specific metric that exceeded threshold */
   metric: string;
+  /** Actual measured value */
   value: number;
+  /** Threshold value that was exceeded */
   threshold: number;
+  /** Human-readable description of the alert */
   message: string;
+  /** Timestamp when the alert was created */
   timestamp: number;
+  /** Whether the alert has been resolved */
   resolved?: boolean;
+  /** Timestamp when the alert was resolved */
   resolvedAt?: number;
 }
 
+/**
+ * Comprehensive performance report generated for a specific time period.
+ * Includes summary statistics, identified bottlenecks, and actionable recommendations.
+ */
 export interface PerformanceReport {
+  /** Time period covered by the report */
   period: {
+    /** Start timestamp of the reporting period */
     start: number;
+    /** End timestamp of the reporting period */
     end: number;
+    /** Duration of the reporting period in milliseconds */
     duration: number;
   };
+  /** Summary statistics for the reporting period */
   summary: {
+    /** Average response time in milliseconds */
     averageResponseTime: number;
+    /** Total number of requests processed */
     totalRequests: number;
+    /** Overall error rate percentage */
     errorRate: number;
+    /** Average throughput in requests per second */
     throughput: number;
   };
+  /** Identified performance bottlenecks with analysis */
   bottlenecks: Array<{
+    /** System component with the bottleneck */
     component: string;
+    /** Description of the performance issue */
     issue: string;
+    /** Business impact of the bottleneck */
     impact: string;
+    /** Recommended action to resolve the issue */
     recommendation: string;
   }>;
+  /** General performance improvement recommendations */
   recommendations: string[];
+  /** Performance alerts generated during the period */
   alerts: PerformanceAlert[];
 }
 
+/**
+ * Service for comprehensive performance monitoring and alerting.
+ * Collects system metrics, generates alerts, and provides performance reports.
+ *
+ * @remarks
+ * This service provides:
+ * - Real-time system metrics collection (response times, throughput, errors, resources)
+ * - Configurable alerting based on performance thresholds
+ * - Automated performance report generation
+ * - Bottleneck identification and optimization recommendations
+ * - Integration with other performance-related services
+ */
 @Injectable()
 export class PerformanceMonitorService implements OnModuleInit, OnModuleDestroy {
+  /** Logger instance for performance monitoring operations */
   private readonly logger = new Logger(PerformanceMonitorService.name);
+
+  /** Array of collected system metrics for analysis */
   private metrics: SystemMetrics[] = [];
+
+  /** Array of active and resolved performance alerts */
   private alerts: PerformanceAlert[] = [];
+
+  /** Interval for periodic metrics collection */
   private monitoringInterval: NodeJS.Timeout;
+
+  /** Interval for periodic report generation */
   private reportInterval: NodeJS.Timeout;
+
+  /** Interval for periodic alert checking */
   private alertCheckInterval: NodeJS.Timeout;
 
-  // Performance thresholds
+  /** Configurable performance thresholds for alerting */
   private readonly thresholds = {
+    /** Response time thresholds in milliseconds */
     responseTime: {
       warning: 1000, // 1 second
       critical: 5000, // 5 seconds
     },
+    /** Error rate thresholds as percentages */
     errorRate: {
       warning: 5, // 5%
       critical: 15, // 15%
     },
+    /** CPU usage thresholds as percentages */
     cpuUsage: {
       warning: 80, // 80%
       critical: 95, // 95%
     },
+    /** Memory usage thresholds as percentages */
     memoryUsage: {
       warning: 85, // 85%
       critical: 95, // 95%
     },
+    /** Cache hit rate thresholds as percentages */
     cacheHitRate: {
       warning: 70, // 70%
       critical: 50, // 50%
     },
+    /** Queue length thresholds as number of tasks */
     queueLength: {
       warning: 100,
       critical: 1000,

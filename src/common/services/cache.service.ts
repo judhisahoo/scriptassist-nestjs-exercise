@@ -1,29 +1,70 @@
 import { Injectable, Logger, Inject, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
+/**
+ * Configuration options for the cache service, defining TTL, size limits,
+ * and namespace settings for cache management.
+ */
 export interface CacheConfig {
+  /** Time-to-live in seconds for cached entries */
   ttl: number;
+  /** Maximum number of entries allowed in the cache */
   maxSize?: number;
+  /** Namespace prefix for cache keys to avoid collisions */
   namespace?: string;
 }
 
+/**
+ * Statistics and metrics for cache performance monitoring,
+ * tracking hits, misses, and operational counts.
+ */
 export interface CacheStats {
+  /** Number of successful cache hits */
   hits: number;
+  /** Number of cache misses */
   misses: number;
+  /** Number of cache set operations */
   sets: number;
+  /** Number of cache delete operations */
   deletes: number;
+  /** Number of cache clear operations */
   clears: number;
+  /** Cache hit rate as a decimal (0.0 to 1.0) */
   hitRate: number;
 }
 
+/**
+ * In-memory cache service with TTL support, LRU eviction, and comprehensive statistics.
+ * Provides thread-safe caching with automatic cleanup and performance monitoring.
+ *
+ * Features:
+ * - Time-to-live (TTL) expiration for cache entries
+ * - Least Recently Used (LRU) eviction when capacity is reached
+ * - Namespace support to prevent key collisions
+ * - Deep cloning to prevent reference mutations
+ * - Automatic cleanup of expired entries
+ * - Comprehensive performance statistics
+ */
 @Injectable()
 export class CacheService {
   private readonly logger = new Logger(CacheService.name);
+
+  /** Internal cache storage using Map for O(1) access */
   private cache: Map<string, { value: any; expiresAt: number; lastAccessed: number }> = new Map();
+
+  /** Cache performance statistics */
   private stats: CacheStats = { hits: 0, misses: 0, sets: 0, deletes: 0, clears: 0, hitRate: 0 };
+
+  /** Maximum number of cache entries */
   private readonly maxSize: number;
+
+  /** Default TTL in seconds for cache entries */
   private readonly defaultTtl: number;
+
+  /** Namespace prefix for cache keys */
   private readonly namespace: string;
+
+  /** Interval for periodic cleanup of expired entries */
   private cleanupInterval: NodeJS.Timeout;
 
   constructor(
@@ -38,12 +79,27 @@ export class CacheService {
     this.cleanupInterval = setInterval(() => this.cleanup(), 60000); // Clean every minute
   }
 
+  /**
+   * Cleanup method called when the module is being destroyed.
+   * Clears the cleanup interval to prevent memory leaks.
+   */
   onModuleDestroy() {
     if (this.cleanupInterval) {
       clearInterval(this.cleanupInterval);
     }
   }
 
+  /**
+   * Stores a value in the cache with optional TTL override.
+   * Performs LRU eviction if cache is at capacity and deep clones the value
+   * to prevent external mutations.
+   *
+   * @param key - The cache key to store the value under
+   * @param value - The value to cache (will be deep cloned)
+   * @param ttlSeconds - Optional TTL in seconds (uses default if not provided)
+   * @returns Promise that resolves when the value is successfully cached
+   * @throws Error if caching operation fails
+   */
   async set(key: string, value: any, ttlSeconds?: number): Promise<void> {
     try {
       const ttl = ttlSeconds || this.defaultTtl;
@@ -74,6 +130,15 @@ export class CacheService {
     }
   }
 
+  /**
+   * Retrieves a value from the cache by key.
+   * Returns null if key doesn't exist or has expired.
+   * Updates access statistics and last accessed time on hits.
+   *
+   * @param key - The cache key to retrieve
+   * @returns The cached value or null if not found/expired
+   * @template T - The expected return type for type safety
+   */
   async get<T>(key: string): Promise<T | null> {
     try {
       const namespacedKey = this.getNamespacedKey(key);
@@ -111,6 +176,14 @@ export class CacheService {
     }
   }
 
+  /**
+   * Removes a cached value by key.
+   * Updates deletion statistics if the key existed.
+   *
+   * @param key - The cache key to delete
+   * @returns True if the key existed and was deleted, false otherwise
+   * @throws Error if deletion operation fails
+   */
   async delete(key: string): Promise<boolean> {
     try {
       const namespacedKey = this.getNamespacedKey(key);
@@ -128,6 +201,13 @@ export class CacheService {
     }
   }
 
+  /**
+   * Clears all cached entries and resets the cache.
+   * Updates clear statistics and logs the operation.
+   *
+   * @returns Promise that resolves when all entries are cleared
+   * @throws Error if clear operation fails
+   */
   async clear(): Promise<void> {
     try {
       this.cache.clear();
@@ -139,6 +219,14 @@ export class CacheService {
     }
   }
 
+  /**
+   * Checks if a key exists in the cache and hasn't expired.
+   * Automatically removes expired entries.
+   *
+   * @param key - The cache key to check
+   * @returns True if the key exists and is valid, false otherwise
+   * @throws Error if check operation fails
+   */
   async has(key: string): Promise<boolean> {
     try {
       const namespacedKey = this.getNamespacedKey(key);
@@ -160,18 +248,41 @@ export class CacheService {
     }
   }
 
+  /**
+   * Returns a copy of current cache statistics.
+   * Statistics include hits, misses, sets, deletes, clears, and hit rate.
+   *
+   * @returns Current cache performance statistics
+   */
   getStats(): CacheStats {
     return { ...this.stats };
   }
 
+  /**
+   * Returns the current number of entries in the cache.
+   * This includes both valid and potentially expired entries.
+   *
+   * @returns Number of cache entries
+   */
   getSize(): number {
     return this.cache.size;
   }
 
+  /**
+   * Generates a namespaced key to prevent cache key collisions
+   * between different applications or services.
+   *
+   * @param key - The original cache key
+   * @returns Namespaced key in format "namespace:key"
+   */
   private getNamespacedKey(key: string): string {
     return `${this.namespace}:${key}`;
   }
 
+  /**
+   * Evicts the least recently used (LRU) cache entry when capacity is reached.
+   * Finds the entry with the oldest lastAccessed timestamp and removes it.
+   */
   private evictLRU(): void {
     let oldestKey: string | undefined;
     let oldestTime = Date.now();
@@ -189,6 +300,10 @@ export class CacheService {
     }
   }
 
+  /**
+   * Performs periodic cleanup of expired cache entries.
+   * Called automatically every minute to maintain cache health.
+   */
   private cleanup(): void {
     const now = Date.now();
     const expiredKeys: string[] = [];
@@ -206,11 +321,22 @@ export class CacheService {
     }
   }
 
+  /**
+   * Updates the cache hit rate based on current hit and miss statistics.
+   * Hit rate is calculated as hits / (hits + misses).
+   */
   private updateHitRate(): void {
     const total = this.stats.hits + this.stats.misses;
     this.stats.hitRate = total > 0 ? this.stats.hits / total : 0;
   }
 
+  /**
+   * Creates a deep clone of an object to prevent external mutations
+   * of cached values. Handles primitives, objects, arrays, and dates.
+   *
+   * @param obj - The object to deep clone
+   * @returns A deep cloned copy of the object
+   */
   private deepClone(obj: any): any {
     if (obj === null || typeof obj !== 'object') {
       return obj;

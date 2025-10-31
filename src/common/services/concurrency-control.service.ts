@@ -3,17 +3,42 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, EntityManager } from 'typeorm';
 import { DistributedLockService } from './distributed-lock.service';
 
+/**
+ * Configuration options for optimistic locking operations,
+ * defining version field and retry behavior for conflict resolution.
+ */
 export interface OptimisticLockOptions {
+  /** Name of the version field in the entity (defaults to 'version') */
   versionField?: string;
+  /** Maximum number of retry attempts on version conflicts */
   maxRetries?: number;
+  /** Delay in milliseconds between retry attempts */
   retryDelay?: number;
 }
 
+/**
+ * Configuration options for pessimistic locking operations,
+ * defining lock timeout and lock mode for exclusive access.
+ */
 export interface PessimisticLockOptions {
+  /** Timeout in milliseconds for acquiring the lock */
   lockTimeout?: number;
+  /** SQL lock mode: 'FOR UPDATE' (exclusive) or 'FOR SHARE' (shared) */
   lockMode?: 'FOR UPDATE' | 'FOR SHARE';
 }
 
+/**
+ * Concurrency control service that provides multiple locking strategies
+ * for managing concurrent access to shared resources and preventing race conditions.
+ *
+ * Features:
+ * - Optimistic locking with version-based conflict detection
+ * - Pessimistic locking with database-level exclusive access
+ * - Distributed locking for cross-service coordination
+ * - Compare-and-set operations for atomic updates
+ * - Batch operations with configurable isolation levels
+ * - Concurrent modification detection
+ */
 @Injectable()
 export class ConcurrencyControlService {
   private readonly logger = new Logger(ConcurrencyControlService.name);
@@ -24,8 +49,16 @@ export class ConcurrencyControlService {
   ) {}
 
   /**
-   * Execute operation with optimistic locking
-   * Throws ConflictException if version mismatch occurs
+   * Executes an operation with optimistic locking to prevent concurrent modifications.
+   * Uses version-based conflict detection and automatic retry on conflicts.
+   * Suitable for scenarios with low contention where conflicts are rare.
+   *
+   * @param entityType - The entity class to lock
+   * @param entityId - The ID of the entity to lock
+   * @param operation - Function to execute with the locked entity and entity manager
+   * @param options - Configuration options for optimistic locking behavior
+   * @returns Result of the operation
+   * @throws Error if version conflicts persist after max retries
    */
   async executeWithOptimisticLock<T>(
     entityType: any,
@@ -33,11 +66,7 @@ export class ConcurrencyControlService {
     operation: (entity: any, entityManager: EntityManager) => Promise<T>,
     options: OptimisticLockOptions = {},
   ): Promise<T> {
-    const {
-      versionField = 'version',
-      maxRetries = 3,
-      retryDelay = 100,
-    } = options;
+    const { versionField = 'version', maxRetries = 3, retryDelay = 100 } = options;
 
     let lastError: Error;
 
@@ -98,7 +127,15 @@ export class ConcurrencyControlService {
   }
 
   /**
-   * Execute operation with pessimistic locking
+   * Executes an operation with pessimistic locking for exclusive access to entities.
+   * Prevents concurrent access by acquiring database-level locks.
+   * Suitable for high-contention scenarios where conflicts are expected.
+   *
+   * @param entityType - The entity class to lock
+   * @param entityId - The ID of the entity to lock
+   * @param operation - Function to execute with the locked entity and entity manager
+   * @param options - Configuration options for pessimistic locking behavior
+   * @returns Result of the operation
    */
   async executeWithPessimisticLock<T>(
     entityType: any,
@@ -106,10 +143,7 @@ export class ConcurrencyControlService {
     operation: (entity: any, entityManager: EntityManager) => Promise<T>,
     options: PessimisticLockOptions = {},
   ): Promise<T> {
-    const {
-      lockTimeout = 30000, // 30 seconds
-      lockMode = 'FOR UPDATE',
-    } = options;
+    const { lockTimeout = 30000, lockMode = 'FOR UPDATE' } = options;
 
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
@@ -155,7 +189,15 @@ export class ConcurrencyControlService {
   }
 
   /**
-   * Execute operation with distributed lock (for cross-service operations)
+   * Executes an operation with distributed locking for cross-service coordination.
+   * Uses Redis or similar distributed store to coordinate locks across multiple service instances.
+   * Essential for operations that span multiple services or require global coordination.
+   *
+   * @param lockResource - Unique identifier for the resource to lock
+   * @param operation - Function to execute while holding the distributed lock
+   * @param lockOptions - Configuration options for lock acquisition and timeout
+   * @returns Result of the operation
+   * @throws Error if lock cannot be acquired
    */
   async executeWithDistributedLock<T>(
     lockResource: string,
@@ -184,7 +226,16 @@ export class ConcurrencyControlService {
   }
 
   /**
-   * Compare and set operation with version check
+   * Performs a compare-and-set operation with explicit version checking.
+   * Atomically checks if the entity version matches the expected version
+   * before executing the update operation. Fails immediately on version mismatch.
+   *
+   * @param entityType - The entity class to operate on
+   * @param entityId - The ID of the entity to update
+   * @param expectedVersion - The expected current version of the entity
+   * @param updateOperation - Function to execute if version matches
+   * @returns Result of the update operation
+   * @throws Error if version doesn't match expected value
    */
   async compareAndSet<T>(
     entityType: any,
@@ -197,9 +248,7 @@ export class ConcurrencyControlService {
       entityId,
       async (entity, entityManager) => {
         if (entity.version !== expectedVersion) {
-          throw new Error(
-            `Version mismatch: expected ${expectedVersion}, got ${entity.version}`,
-          );
+          throw new Error(`Version mismatch: expected ${expectedVersion}, got ${entity.version}`);
         }
 
         return await updateOperation(entity);
@@ -209,7 +258,13 @@ export class ConcurrencyControlService {
   }
 
   /**
-   * Batch operation with concurrency control
+   * Executes multiple operations in a batch with configurable concurrency control.
+   * Supports different locking strategies per operation and transaction isolation levels.
+   * Useful for complex business transactions that require multiple entity updates.
+   *
+   * @param operations - Array of operations with their locking requirements
+   * @param options - Configuration for isolation level and distributed locking
+   * @returns Array of results from each operation in the same order
    */
   async executeBatchWithConcurrencyControl<T>(
     operations: Array<{
@@ -228,9 +283,8 @@ export class ConcurrencyControlService {
 
     if (distributedLockResource) {
       // Use distributed lock for the entire batch
-      return this.executeWithDistributedLock(
-        distributedLockResource,
-        async () => this.executeBatchOperations(operations, isolationLevel),
+      return this.executeWithDistributedLock(distributedLockResource, async () =>
+        this.executeBatchOperations(operations, isolationLevel),
       );
     } else {
       return this.executeBatchOperations(operations, isolationLevel);
@@ -305,7 +359,13 @@ export class ConcurrencyControlService {
   }
 
   /**
-   * Check for concurrent modifications
+   * Detects if an entity has been concurrently modified by comparing versions.
+   * Useful for client-side optimistic locking where the client provides the last known version.
+   *
+   * @param entityType - The entity class to check
+   * @param entityId - The ID of the entity to check
+   * @param lastKnownVersion - The version the client last saw
+   * @returns True if concurrent modification is detected, false otherwise
    */
   async detectConcurrentModification(
     entityType: any,
@@ -326,7 +386,12 @@ export class ConcurrencyControlService {
   }
 
   /**
-   * Get entity version for optimistic locking
+   * Retrieves the current version of an entity for optimistic locking purposes.
+   * Returns null if the entity doesn't exist or an error occurs.
+   *
+   * @param entityType - The entity class to query
+   * @param entityId - The ID of the entity to get version for
+   * @returns Current version number or null if not found
    */
   async getEntityVersion(entityType: any, entityId: string | number): Promise<number | null> {
     try {
@@ -342,10 +407,23 @@ export class ConcurrencyControlService {
     }
   }
 
+  /**
+   * Generates a unique instance identifier for distributed locking.
+   * Combines process ID and timestamp to ensure uniqueness across instances.
+   *
+   * @returns Unique instance identifier string
+   */
   private getInstanceId(): string {
     return `instance_${process.pid}_${Date.now()}`;
   }
 
+  /**
+   * Utility method to create delays for retry mechanisms.
+   * Uses Promise-based timeout for non-blocking delays.
+   *
+   * @param ms - Delay duration in milliseconds
+   * @returns Promise that resolves after the specified delay
+   */
   private delay(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));
   }

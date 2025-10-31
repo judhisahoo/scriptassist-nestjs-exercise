@@ -2,49 +2,109 @@ import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/commo
 import { ConfigService } from '@nestjs/config';
 import { PerformanceOptimizationService } from './performance-optimization.service';
 
+/**
+ * Represents an asynchronous task to be processed by the async processor service.
+ * Tasks can have different priorities, retry policies, and callback functions.
+ */
 export interface AsyncTask {
+  /** Unique identifier for the task */
   id: string;
+  /** Type of task that determines which processor handles it */
   type: string;
+  /** Priority level affecting processing order: 'low', 'normal', 'high', or 'critical' */
   priority: 'low' | 'normal' | 'high' | 'critical';
+  /** Data payload to be processed by the task */
   data: any;
+  /** Timestamp when the task was created */
   createdAt: number;
+  /** Number of retry attempts made so far */
   retries: number;
+  /** Maximum number of retry attempts allowed */
   maxRetries: number;
+  /** Optional timeout in milliseconds for task processing */
   timeout?: number;
+  /** Optional callback function called on successful completion */
   callback?: (result: any) => void;
+  /** Optional callback function called on error or failure */
   errorCallback?: (error: Error) => void;
 }
 
+/**
+ * Result of processing an asynchronous task, containing success status,
+ * result data, error information, and performance metrics.
+ */
 export interface ProcessingResult {
+  /** ID of the processed task */
   taskId: string;
+  /** Whether the task completed successfully */
   success: boolean;
+  /** Result data returned by the task processor (if successful) */
   result?: any;
+  /** Error message if the task failed */
   error?: string;
+  /** Total time taken to process the task in milliseconds */
   processingTime: number;
+  /** Number of retry attempts made */
   retries: number;
 }
 
+/**
+ * Metrics and statistics for the async processing queue system,
+ * providing insights into performance, throughput, and system health.
+ */
 export interface QueueMetrics {
+  /** Total number of tasks currently in all queues */
   queueLength: number;
+  /** Rate of task processing (tasks per minute) */
   processingRate: number;
+  /** Average time taken to process successful tasks in milliseconds */
   averageProcessingTime: number;
+  /** Percentage of tasks that failed in the recent period */
   errorRate: number;
+  /** Number of worker threads currently active */
   activeWorkers: number;
+  /** Total number of tasks waiting in queues (alias for queueLength) */
   queuedTasks: number;
 }
 
+/**
+ * Asynchronous task processor service that manages background task execution
+ * with priority queuing, retry mechanisms, and performance monitoring.
+ *
+ * Features:
+ * - Priority-based task queuing (critical, high, normal, low)
+ * - Configurable retry policies with exponential backoff
+ * - Timeout handling for long-running tasks
+ * - Adaptive worker scaling based on queue load
+ * - Comprehensive metrics and monitoring
+ * - Callback support for task completion
+ */
 @Injectable()
 export class AsyncProcessorService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(AsyncProcessorService.name);
+
+  /** Legacy queue - kept for backward compatibility */
   private taskQueue: AsyncTask[] = [];
+
+  /** Storage for completed task results */
   private processingResults: ProcessingResult[] = [];
+
+  /** Number of currently active worker threads */
   private activeWorkers = 0;
+
+  /** Maximum number of concurrent workers */
   private maxWorkers: number;
+
+  /** Interval for processing queued tasks */
   private processingInterval: NodeJS.Timeout;
+
+  /** Interval for collecting and logging metrics */
   private metricsInterval: NodeJS.Timeout;
+
+  /** Flag to control processing (can be paused for maintenance) */
   private isProcessing = true;
 
-  // Priority queues
+  /** Priority queues for different task importance levels */
   private criticalQueue: AsyncTask[] = [];
   private highQueue: AsyncTask[] = [];
   private normalQueue: AsyncTask[] = [];
@@ -57,12 +117,20 @@ export class AsyncProcessorService implements OnModuleInit, OnModuleDestroy {
     this.maxWorkers = this.configService.get('MAX_ASYNC_WORKERS', 10);
   }
 
+  /**
+   * Initializes the async processor service by starting task processing
+   * and metrics collection routines.
+   */
   async onModuleInit() {
     this.startProcessing();
     this.startMetricsCollection();
     this.logger.log(`Async processor initialized with ${this.maxWorkers} max workers`);
   }
 
+  /**
+   * Cleans up resources when the service is being destroyed.
+   * Stops all intervals and prevents new task processing.
+   */
   async onModuleDestroy() {
     this.isProcessing = false;
     if (this.processingInterval) {
@@ -74,7 +142,13 @@ export class AsyncProcessorService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Submit a task for async processing
+   * Submits a task for asynchronous processing with configurable options.
+   * Tasks are queued based on priority and processed by registered processors.
+   *
+   * @param type - The type of task that determines which processor handles it
+   * @param data - The data payload to be processed
+   * @param options - Configuration options for task processing
+   * @returns Promise resolving to the unique task ID
    */
   async submitTask(
     type: string,
@@ -87,13 +161,7 @@ export class AsyncProcessorService implements OnModuleInit, OnModuleDestroy {
       errorCallback?: (error: Error) => void;
     } = {},
   ): Promise<string> {
-    const {
-      priority = 'normal',
-      maxRetries = 3,
-      timeout,
-      callback,
-      errorCallback,
-    } = options;
+    const { priority = 'normal', maxRetries = 3, timeout, callback, errorCallback } = options;
 
     const task: AsyncTask = {
       id: this.generateTaskId(),
@@ -116,7 +184,11 @@ export class AsyncProcessorService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Submit multiple tasks in batch
+   * Submits multiple tasks in a batch for efficient bulk processing.
+   * All tasks are submitted individually but can share common configuration.
+   *
+   * @param tasks - Array of task configurations to submit
+   * @returns Promise resolving to array of task IDs in the same order as input
    */
   async submitBatch(
     tasks: Array<{
@@ -143,7 +215,11 @@ export class AsyncProcessorService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Get task status
+   * Retrieves the current status and details of a submitted task.
+   * Checks completed tasks first, then searches through priority queues.
+   *
+   * @param taskId - The unique identifier of the task to check
+   * @returns Object containing task status, queue position, and result if completed
    */
   getTaskStatus(taskId: string): {
     found: boolean;
@@ -190,7 +266,11 @@ export class AsyncProcessorService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Cancel a queued task
+   * Cancels a queued task if it hasn't started processing yet.
+   * Searches through all priority queues to find and remove the task.
+   *
+   * @param taskId - The unique identifier of the task to cancel
+   * @returns True if the task was found and cancelled, false otherwise
    */
   cancelTask(taskId: string): boolean {
     const queues = [this.criticalQueue, this.highQueue, this.normalQueue, this.lowQueue];
@@ -208,11 +288,14 @@ export class AsyncProcessorService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Get queue metrics
+   * Retrieves comprehensive metrics about the current state of the async processing system.
+   * Includes queue lengths, processing rates, error rates, and worker utilization.
+   *
+   * @returns Detailed metrics about queue performance and system health
    */
   getQueueMetrics(): QueueMetrics {
     const totalQueued = this.criticalQueue.length + this.highQueue.length +
-                       this.normalQueue.length + this.lowQueue.length;
+                        this.normalQueue.length + this.lowQueue.length;
 
     const recentResults = this.processingResults.filter(
       result => Date.now() - result.processingTime < 300000 // Last 5 minutes
@@ -238,7 +321,11 @@ export class AsyncProcessorService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Register task processor for a specific task type
+   * Registers a processor function for handling specific task types.
+   * Processors are stored dynamically and called when tasks of matching type are processed.
+   *
+   * @param taskType - The type of task this processor handles
+   * @param processor - Async function that processes task data and returns a result
    */
   registerProcessor(taskType: string, processor: (data: any) => Promise<any>) {
     // Store processor functions (simplified - would use a Map in real implementation)
@@ -246,6 +333,12 @@ export class AsyncProcessorService implements OnModuleInit, OnModuleDestroy {
     this.logger.log(`Processor registered for task type: ${taskType}`);
   }
 
+  /**
+   * Adds a task to the appropriate priority queue based on its priority level.
+   * Critical tasks get highest priority, followed by high, normal, and low priority tasks.
+   *
+   * @param task - The async task to add to the queue
+   */
   private addToPriorityQueue(task: AsyncTask) {
     switch (task.priority) {
       case 'critical':
@@ -262,6 +355,10 @@ export class AsyncProcessorService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  /**
+   * Starts the main processing loop that continuously processes queued tasks.
+   * Runs at regular intervals to check for new tasks and process them.
+   */
   private startProcessing() {
     this.processingInterval = setInterval(async () => {
       if (!this.isProcessing) return;
@@ -270,6 +367,10 @@ export class AsyncProcessorService implements OnModuleInit, OnModuleDestroy {
     }, 100); // Process every 100ms
   }
 
+  /**
+   * Processes the next batch of tasks if workers are available.
+   * Ensures the number of active workers doesn't exceed the configured maximum.
+   */
   private async processNextBatch() {
     // Don't exceed max workers
     if (this.activeWorkers >= this.maxWorkers) {
@@ -288,6 +389,12 @@ export class AsyncProcessorService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
+  /**
+   * Retrieves the next task to process based on priority order.
+   * Critical tasks are processed first, followed by high, normal, and low priority tasks.
+   *
+   * @returns The next task to process, or null if no tasks are queued
+   */
   private getNextTask(): AsyncTask | null {
     // Priority order: critical > high > normal > low
     return this.criticalQueue.shift() ||
@@ -297,6 +404,12 @@ export class AsyncProcessorService implements OnModuleInit, OnModuleDestroy {
            null;
   }
 
+  /**
+   * Processes a single task using the registered processor for its type.
+   * Handles timeouts, retries with exponential backoff, and callback execution.
+   *
+   * @param task - The async task to process
+   */
   private async processTask(task: AsyncTask): Promise<void> {
     const startTime = Date.now();
 
@@ -388,12 +501,20 @@ export class AsyncProcessorService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  /**
+   * Starts the periodic metrics collection and monitoring routine.
+   * Collects queue metrics and performs adaptive scaling every 30 seconds.
+   */
   private startMetricsCollection() {
     this.metricsInterval = setInterval(() => {
       this.updateMetrics();
     }, 30000); // Every 30 seconds
   }
 
+  /**
+   * Updates metrics and performs adaptive scaling based on current system load.
+   * Logs warnings for concerning performance indicators and adjusts worker count.
+   */
   private updateMetrics() {
     const metrics = this.getQueueMetrics();
 
@@ -414,6 +535,12 @@ export class AsyncProcessorService implements OnModuleInit, OnModuleDestroy {
     this.adaptiveWorkerScaling(metrics);
   }
 
+  /**
+   * Adaptively scales the number of worker threads based on queue length and system load.
+   * Increases workers when queue grows and decreases when load is light.
+   *
+   * @param metrics - Current queue metrics used for scaling decisions
+   */
   private adaptiveWorkerScaling(metrics: QueueMetrics) {
     const targetWorkers = Math.min(
       Math.max(
@@ -430,7 +557,8 @@ export class AsyncProcessorService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Clean up old processing results
+   * Cleans up old processing results to prevent memory leaks.
+   * Removes results older than 1 hour to maintain reasonable memory usage.
    */
   private cleanupOldResults() {
     const cutoffTime = Date.now() - 3600000; // Keep last hour
@@ -439,12 +567,21 @@ export class AsyncProcessorService implements OnModuleInit, OnModuleDestroy {
     );
   }
 
+  /**
+   * Generates a unique task identifier using timestamp and random string.
+   * Format: task_{timestamp}_{random_suffix}
+   *
+   * @returns Unique task ID string
+   */
   private generateTaskId(): string {
     return `task_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   }
 
   /**
-   * Get processing statistics
+   * Retrieves comprehensive processing statistics for monitoring and analysis.
+   * Includes success rates, processing times, and current queue metrics.
+   *
+   * @returns Detailed statistics about task processing performance
    */
   getProcessingStatistics() {
     const now = Date.now();
@@ -470,7 +607,8 @@ export class AsyncProcessorService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Pause processing (for maintenance)
+   * Pauses the async processing system for maintenance or emergency situations.
+   * No new tasks will be processed until resumeProcessing() is called.
    */
   pauseProcessing() {
     this.isProcessing = false;
@@ -478,7 +616,8 @@ export class AsyncProcessorService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Resume processing
+   * Resumes async processing after it has been paused.
+   * Allows the system to continue processing queued tasks.
    */
   resumeProcessing() {
     this.isProcessing = true;

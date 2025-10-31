@@ -1,36 +1,81 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
+/**
+ * Comprehensive performance metrics collected for system monitoring and optimization.
+ * Includes request statistics, resource usage, and system health indicators.
+ */
 export interface PerformanceMetrics {
+  /** Total number of requests processed in the current interval */
   requestCount: number;
+  /** Average response time in milliseconds */
   averageResponseTime: number;
+  /** Current throughput in requests per second */
   throughput: number;
+  /** Current error rate as a percentage (0-100) */
   errorRate: number;
+  /** Current memory usage in megabytes */
   memoryUsage: number;
+  /** Current CPU usage percentage */
   cpuUsage: number;
+  /** Number of currently active connections */
   activeConnections: number;
+  /** Current depth of the request queue */
   queueDepth: number;
 }
 
+/**
+ * Configuration for backpressure management to prevent system overload.
+ * Controls concurrent request limits, queuing, and timeout behavior.
+ */
 export interface BackpressureConfig {
+  /** Maximum number of concurrent requests allowed */
   maxConcurrentRequests: number;
+  /** Maximum size of the request queue */
   queueSize: number;
+  /** Timeout in milliseconds for queued requests */
   timeout: number;
+  /** Number of retry attempts for failed operations */
   retryAttempts: number;
 }
 
+/**
+ * Configuration and status of a resource pool for connection and resource management.
+ * Tracks pool sizing, availability, and wait queue statistics.
+ */
 export interface ResourcePool {
+  /** Unique name identifier for the resource pool */
   name: string;
+  /** Maximum number of resources allowed in the pool */
   maxSize: number;
+  /** Minimum number of resources to maintain in the pool */
   minSize: number;
+  /** Current number of resources in the pool */
   currentSize: number;
+  /** Number of currently available resources */
   available: number;
+  /** Number of requests waiting for resources */
   waitQueue: number;
 }
 
+/**
+ * Service for performance optimization and backpressure management.
+ * Provides adaptive resource management, request queuing, and performance monitoring.
+ *
+ * @remarks
+ * This service provides:
+ * - Backpressure control to prevent system overload
+ * - Adaptive resource pool management
+ * - Performance metrics collection and monitoring
+ * - Request queuing and prioritization
+ * - Automatic scaling based on load patterns
+ */
 @Injectable()
 export class PerformanceOptimizationService {
+  /** Logger instance for performance optimization operations */
   private readonly logger = new Logger(PerformanceOptimizationService.name);
+
+  /** Current performance metrics being tracked */
   private metrics: PerformanceMetrics = {
     requestCount: 0,
     averageResponseTime: 0,
@@ -42,6 +87,7 @@ export class PerformanceOptimizationService {
     queueDepth: 0,
   };
 
+  /** Configuration for backpressure management */
   private backpressureConfig: BackpressureConfig = {
     maxConcurrentRequests: 100,
     queueSize: 1000,
@@ -49,8 +95,13 @@ export class PerformanceOptimizationService {
     retryAttempts: 3,
   };
 
+  /** Map of resource pools for different types of connections */
   private resourcePools: Map<string, ResourcePool> = new Map();
+
+  /** Number of currently active requests */
   private activeRequests = 0;
+
+  /** Queue of pending requests when under backpressure */
   private requestQueue: Array<{
     operation: () => Promise<any>;
     resolve: (value: any) => void;
@@ -58,7 +109,10 @@ export class PerformanceOptimizationService {
     timeout: NodeJS.Timeout;
   }> = [];
 
+  /** Interval for periodic metrics updates */
   private metricsInterval: NodeJS.Timeout;
+
+  /** Timestamp of the last metrics update */
   private lastMetricsUpdate = Date.now();
 
   constructor(private configService: ConfigService) {
@@ -141,13 +195,22 @@ export class PerformanceOptimizationService {
   }
 
   /**
-   * Execute operation with backpressure control
+   * Executes an operation with backpressure control to prevent system overload.
+   * Queues requests when concurrent limits are exceeded and processes them when capacity becomes available.
+   *
+   * @param operation - The async operation to execute
+   * @param options - Configuration options for execution priority and timeouts
+   * @returns The result of the operation
+   * @throws Error if the operation fails or times out in queue
    */
   async executeWithBackpressure<T>(
     operation: () => Promise<T>,
     options: {
+      /** Priority level for queue processing */
       priority?: 'high' | 'normal' | 'low';
+      /** Custom timeout for the operation */
       timeout?: number;
+      /** Number of retry attempts on failure */
       retries?: number;
     } = {},
   ): Promise<T> {
@@ -237,7 +300,11 @@ export class PerformanceOptimizationService {
   }
 
   /**
-   * Acquire resource from pool with backpressure
+   * Acquires a resource from the specified pool with backpressure handling.
+   * Automatically scales the pool if needed and waits for availability.
+   *
+   * @param poolName - Name of the resource pool to acquire from
+   * @returns True if resource was acquired successfully
    */
   async acquireResource(poolName: string): Promise<boolean> {
     const pool = this.resourcePools.get(poolName);
@@ -280,7 +347,10 @@ export class PerformanceOptimizationService {
   }
 
   /**
-   * Release resource back to pool
+   * Releases a resource back to the specified pool.
+   * Automatically scales down the pool if there are too many idle resources.
+   *
+   * @param poolName - Name of the resource pool to release to
    */
   releaseResource(poolName: string) {
     const pool = this.resourcePools.get(poolName);
@@ -297,14 +367,20 @@ export class PerformanceOptimizationService {
   }
 
   /**
-   * Get current performance metrics
+   * Retrieves the current performance metrics snapshot.
+   * Provides real-time statistics about system performance and resource usage.
+   *
+   * @returns Current performance metrics object
    */
   getMetrics(): PerformanceMetrics {
     return { ...this.metrics };
   }
 
   /**
-   * Get resource pool status
+   * Retrieves the current status of all resource pools.
+   * Provides detailed information about pool utilization and availability.
+   *
+   * @returns Object mapping pool names to their current status
    */
   getResourcePools(): Record<string, ResourcePool> {
     const result: Record<string, ResourcePool> = {};
@@ -315,7 +391,10 @@ export class PerformanceOptimizationService {
   }
 
   /**
-   * Get backpressure status
+   * Retrieves the current backpressure status and queue information.
+   * Useful for monitoring system load and queue depth.
+   *
+   * @returns Object containing backpressure metrics and status
    */
   getBackpressureStatus() {
     return {
@@ -328,7 +407,8 @@ export class PerformanceOptimizationService {
   }
 
   /**
-   * Adaptive scaling based on load
+   * Performs adaptive scaling of resource pools based on current load metrics.
+   * Automatically increases or decreases pool sizes to optimize performance.
    */
   async adaptiveScaling() {
     const metrics = this.getMetrics();
@@ -356,7 +436,12 @@ export class PerformanceOptimizationService {
   }
 
   /**
-   * Record operation timing for performance monitoring
+   * Records operation timing data for performance monitoring and analysis.
+   * Updates running averages and error rates using exponential moving averages.
+   *
+   * @param operation - Name or identifier of the operation
+   * @param duration - Operation duration in milliseconds
+   * @param success - Whether the operation completed successfully
    */
   recordOperationTiming(operation: string, duration: number, success: boolean) {
     // Update average response time (exponential moving average)

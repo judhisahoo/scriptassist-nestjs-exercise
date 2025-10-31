@@ -3,43 +3,92 @@ import { ConfigService } from '@nestjs/config';
 import { CacheService } from './cache.service';
 import { PerformanceOptimizationService } from './performance-optimization.service';
 
+/**
+ * Defines the configuration for a cache strategy including TTL, size limits,
+ * eviction policies, and data transformation options.
+ */
 export interface CacheStrategy {
+  /** Unique name identifier for the cache strategy */
   name: string;
+  /** Time-to-live in seconds for cached entries */
   ttl: number;
+  /** Maximum number of entries allowed in this strategy's cache */
   maxSize?: number;
+  /** Eviction policy: 'lru' (Least Recently Used), 'lfu' (Least Frequently Used), 'ttl' (Time-based), or 'adaptive' */
   evictionPolicy: 'lru' | 'lfu' | 'ttl' | 'adaptive';
+  /** Whether to compress cached data to save memory */
   compression?: boolean;
+  /** Serialization format: 'json', 'msgpack', or 'none' for raw data */
   serialization?: 'json' | 'msgpack' | 'none';
 }
 
+/**
+ * Represents a cached entry with comprehensive metadata for advanced caching strategies.
+ * Tracks usage patterns, lifecycle, and performance metrics for intelligent cache management.
+ */
 export interface CacheEntry {
+  /** The cache key identifier */
   key: string;
+  /** The cached value (can be any serializable data) */
   value: any;
+  /** Metadata containing usage statistics and cache management information */
   metadata: {
+    /** Number of times this entry has been accessed */
     hits: number;
+    /** Timestamp of the last access to this entry */
     lastAccessed: number;
+    /** Timestamp when this entry was created */
     createdAt: number;
+    /** Time-to-live in seconds for this entry */
     ttl: number;
+    /** Memory size of the cached value in bytes */
     size: number;
+    /** Name of the cache strategy used for this entry */
     strategy: string;
   };
 }
 
+/**
+ * Comprehensive metrics for monitoring cache performance and health.
+ * Tracks hit rates, memory usage, and operational statistics for cache optimization.
+ */
 export interface CacheMetrics {
+  /** Total number of cache requests (hits + misses) */
   totalRequests: number;
+  /** Number of successful cache hits */
   hits: number;
+  /** Number of cache misses */
   misses: number;
+  /** Cache hit rate as a percentage (0-100) */
   hitRate: number;
+  /** Number of entries evicted due to capacity limits */
   evictions: number;
+  /** Current memory usage of the cache in bytes */
   memoryUsage: number;
+  /** Average response time for cache operations in milliseconds */
   averageResponseTime: number;
 }
 
+/**
+ * Advanced caching service that provides multiple caching strategies with intelligent
+ * eviction policies, compression, and performance monitoring. Supports different TTL
+ * configurations and adaptive caching based on access patterns.
+ *
+ * Features:
+ * - Multiple cache strategies (high-throughput, low-latency, long-term, adaptive)
+ * - Intelligent eviction policies (LRU, LFU, TTL-based, adaptive)
+ * - Data compression and serialization options
+ * - Comprehensive metrics and monitoring
+ * - Automatic cleanup and optimization
+ */
 @Injectable()
 export class AdvancedCacheService implements OnModuleInit {
   private readonly logger = new Logger(AdvancedCacheService.name);
+  /** Map of registered cache strategies by name */
   private strategies: Map<string, CacheStrategy> = new Map();
+  /** Map of cached entries with their metadata */
   private cacheEntries: Map<string, CacheEntry> = new Map();
+  /** Performance and usage metrics for monitoring */
   private metrics: CacheMetrics = {
     totalRequests: 0,
     hits: 0,
@@ -50,7 +99,9 @@ export class AdvancedCacheService implements OnModuleInit {
     averageResponseTime: 0,
   };
 
+  /** Interval for periodic cache cleanup */
   private cleanupInterval: NodeJS.Timeout;
+  /** Interval for metrics collection and logging */
   private metricsInterval: NodeJS.Timeout;
 
   constructor(
@@ -59,6 +110,10 @@ export class AdvancedCacheService implements OnModuleInit {
     private performanceService: PerformanceOptimizationService,
   ) {}
 
+  /**
+   * Initializes the advanced cache service by setting up default strategies,
+   * starting cleanup routines, and beginning metrics collection.
+   */
   async onModuleInit() {
     this.initializeStrategies();
     this.startCleanupRoutine();
@@ -66,6 +121,10 @@ export class AdvancedCacheService implements OnModuleInit {
     this.logger.log('Advanced cache service initialized');
   }
 
+  /**
+   * Initializes the default cache strategies optimized for different use cases.
+   * Each strategy is configured with appropriate TTL, size limits, and eviction policies.
+   */
   private initializeStrategies() {
     // High-throughput strategy for frequently accessed data
     this.registerStrategy({
@@ -77,7 +136,7 @@ export class AdvancedCacheService implements OnModuleInit {
       serialization: 'json',
     });
 
-    // Low-latency strategy for critical data
+    // Low-latency strategy for critical data requiring minimal access time
     this.registerStrategy({
       name: 'low-latency',
       ttl: 60, // 1 minute
@@ -87,7 +146,7 @@ export class AdvancedCacheService implements OnModuleInit {
       serialization: 'none',
     });
 
-    // Long-term strategy for stable data
+    // Long-term strategy for stable data that doesn't change frequently
     this.registerStrategy({
       name: 'long-term',
       ttl: 3600, // 1 hour
@@ -97,7 +156,7 @@ export class AdvancedCacheService implements OnModuleInit {
       serialization: 'msgpack',
     });
 
-    // Adaptive strategy that adjusts based on load
+    // Adaptive strategy that adjusts based on load and access patterns
     this.registerStrategy({
       name: 'adaptive',
       ttl: 180, // 3 minutes
@@ -108,13 +167,24 @@ export class AdvancedCacheService implements OnModuleInit {
     });
   }
 
+  /**
+   * Registers a new cache strategy for use by the advanced cache service.
+   * Strategies define how different types of data should be cached and evicted.
+   *
+   * @param strategy - The cache strategy configuration to register
+   */
   registerStrategy(strategy: CacheStrategy) {
     this.strategies.set(strategy.name, strategy);
     this.logger.log(`Cache strategy registered: ${strategy.name}`);
   }
 
   /**
-   * Get value from cache with advanced strategies
+   * Retrieves a value from the cache using the specified strategy.
+   * Implements multi-level cache lookup with fallback to basic cache service.
+   *
+   * @param key - The cache key to retrieve
+   * @param strategyName - The cache strategy to use (defaults to 'adaptive')
+   * @returns The cached value or null if not found or expired
    */
   async get<T>(key: string, strategyName: string = 'adaptive'): Promise<T | null> {
     const startTime = Date.now();
@@ -176,7 +246,13 @@ export class AdvancedCacheService implements OnModuleInit {
   }
 
   /**
-   * Set value in cache with advanced strategies
+   * Stores a value in the cache using the specified strategy.
+   * Applies compression and serialization based on strategy configuration.
+   *
+   * @param key - The cache key to store the value under
+   * @param value - The value to cache (will be serialized based on strategy)
+   * @param strategyName - The cache strategy to use (defaults to 'adaptive')
+   * @param customTtl - Optional custom TTL to override strategy default
    */
   async set(
     key: string,
@@ -235,7 +311,11 @@ export class AdvancedCacheService implements OnModuleInit {
   }
 
   /**
-   * Delete from cache
+   * Removes a cached value by key from the specified strategy or all strategies.
+   *
+   * @param key - The cache key to delete
+   * @param strategyName - Optional strategy name; if not provided, deletes from all strategies
+   * @returns True if the key was found and deleted, false otherwise
    */
   async delete(key: string, strategyName?: string): Promise<boolean> {
     try {
@@ -269,7 +349,10 @@ export class AdvancedCacheService implements OnModuleInit {
   }
 
   /**
-   * Clear cache for specific strategy or all
+   * Clears all cached entries for a specific strategy or all strategies.
+   * Updates memory usage metrics after clearing.
+   *
+   * @param strategyName - Optional strategy name; if not provided, clears all strategies
    */
   async clear(strategyName?: string): Promise<void> {
     try {
@@ -297,7 +380,10 @@ export class AdvancedCacheService implements OnModuleInit {
   }
 
   /**
-   * Get cache statistics
+   * Retrieves comprehensive statistics about cache performance and usage.
+   * Provides insights into hit rates, strategy performance, and memory usage.
+   *
+   * @returns Detailed cache statistics including overall metrics and per-strategy breakdowns
    */
   getCacheStatistics() {
     const strategyStats: Record<string, any> = {};
@@ -331,7 +417,10 @@ export class AdvancedCacheService implements OnModuleInit {
   }
 
   /**
-   * Warm up cache with frequently accessed data
+   * Pre-populates the cache with frequently accessed data to improve initial performance.
+   * This method loads mock data for demonstration; in production, it should load real frequently accessed data.
+   *
+   * @param strategyName - The cache strategy to use for warmup data (defaults to 'high-throughput')
    */
   async warmupCache(strategyName: string = 'high-throughput'): Promise<void> {
     try {
@@ -356,7 +445,8 @@ export class AdvancedCacheService implements OnModuleInit {
   }
 
   /**
-   * Adaptive cache sizing based on load
+   * Dynamically adjusts cache sizes based on current system load and performance metrics.
+   * Scales cache capacities up during high throughput and down during low utilization.
    */
   async adaptiveCacheSizing() {
     const perfMetrics = this.performanceService.getMetrics();
@@ -383,16 +473,30 @@ export class AdvancedCacheService implements OnModuleInit {
     }
   }
 
+  /**
+   * Generates a namespaced key for storing cache entries under a specific strategy.
+   * This prevents key collisions between different cache strategies.
+   *
+   * @param key - The original cache key
+   * @param strategyName - The strategy name to namespace the key
+   * @returns A namespaced key in the format "strategyName:key"
+   */
   private getStrategyKey(key: string, strategyName: string): string {
     return `${strategyName}:${key}`;
   }
 
+  /**
+   * Evicts cache entries based on the strategy's eviction policy when capacity limits are reached.
+   * Different policies (LRU, LFU, TTL, Adaptive) determine which entries are removed.
+   *
+   * @param strategyName - The name of the strategy to evict entries from
+   */
   private async evictEntries(strategyName: string) {
     const strategy = this.strategies.get(strategyName);
     if (!strategy) return;
 
     const strategyEntries = Array.from(this.cacheEntries.entries()).filter(
-      ([, entry]) => entry.metadata.strategy === strategyName
+      ([, entry]) => entry.metadata.strategy === strategyName,
     );
 
     if (strategyEntries.length === 0) return;
@@ -401,7 +505,7 @@ export class AdvancedCacheService implements OnModuleInit {
 
     switch (strategy.evictionPolicy) {
       case 'lru':
-        // Evict least recently used
+        // Evict least recently used entries
         entriesToEvict = strategyEntries
           .sort(([, a], [, b]) => a.metadata.lastAccessed - b.metadata.lastAccessed)
           .slice(0, Math.floor(strategyEntries.length * 0.1))
@@ -409,7 +513,7 @@ export class AdvancedCacheService implements OnModuleInit {
         break;
 
       case 'lfu':
-        // Evict least frequently used
+        // Evict least frequently used entries
         entriesToEvict = strategyEntries
           .sort(([, a], [, b]) => a.metadata.hits - b.metadata.hits)
           .slice(0, Math.floor(strategyEntries.length * 0.1))
@@ -417,7 +521,7 @@ export class AdvancedCacheService implements OnModuleInit {
         break;
 
       case 'ttl':
-        // Evict expired entries
+        // Evict expired entries based on TTL
         const now = Date.now();
         entriesToEvict = strategyEntries
           .filter(([, entry]) => now - entry.metadata.createdAt >= entry.metadata.ttl * 1000)
@@ -425,7 +529,7 @@ export class AdvancedCacheService implements OnModuleInit {
         break;
 
       case 'adaptive':
-        // Adaptive eviction based on multiple factors
+        // Adaptive eviction based on access patterns and frequency
         entriesToEvict = strategyEntries
           .sort(([, a], [, b]) => {
             const scoreA = (Date.now() - a.metadata.lastAccessed) / (a.metadata.hits + 1);
@@ -447,6 +551,13 @@ export class AdvancedCacheService implements OnModuleInit {
     }
   }
 
+  /**
+   * Calculates the memory size of a value by serializing it to JSON.
+   * Used for tracking memory usage and enforcing cache size limits.
+   *
+   * @param value - The value to calculate size for
+   * @returns The size in bytes, or 0 if serialization fails
+   */
   private calculateSize(value: any): number {
     try {
       return JSON.stringify(value).length;
@@ -455,6 +566,12 @@ export class AdvancedCacheService implements OnModuleInit {
     }
   }
 
+  /**
+   * Calculates the total memory usage across all cached entries.
+   * Used for monitoring and enforcing memory limits.
+   *
+   * @returns Total memory usage in bytes
+   */
   private calculateTotalMemoryUsage(): number {
     let totalSize = 0;
     for (const entry of this.cacheEntries.values()) {
@@ -463,26 +580,46 @@ export class AdvancedCacheService implements OnModuleInit {
     return totalSize;
   }
 
+  /**
+   * Placeholder for data compression functionality.
+   * In a production implementation, this would use a proper compression library
+   * like zlib or brotli to reduce memory usage for large cached values.
+   *
+   * @param value - The value to compress
+   * @returns The compressed value (currently returns uncompressed for simplicity)
+   */
   private async compress(value: any): Promise<any> {
     // Simple compression - in real implementation, use proper compression library
     // For now, just return the value as-is
     return value;
   }
 
+  /**
+   * Updates the cache hit rate percentage based on current hit and miss counts.
+   * Used for monitoring cache effectiveness and performance optimization.
+   */
   private updateHitRate() {
     const total = this.metrics.hits + this.metrics.misses;
     this.metrics.hitRate = total > 0 ? (this.metrics.hits / total) * 100 : 0;
   }
 
+  /**
+   * Starts the periodic cleanup routine that removes expired cache entries.
+   * Runs every 5 minutes to maintain cache health and prevent memory leaks.
+   */
   private startCleanupRoutine() {
     this.cleanupInterval = setInterval(async () => {
       await this.performCleanup();
     }, 300000); // Every 5 minutes
   }
 
+  /**
+   * Performs periodic cleanup of expired cache entries and triggers adaptive cache sizing.
+   * This method is called automatically by the cleanup routine at regular intervals.
+   */
   private async performCleanup() {
     try {
-      // Clean expired entries
+      // Clean expired entries based on TTL
       const now = Date.now();
       const expiredKeys: string[] = [];
 
@@ -501,31 +638,43 @@ export class AdvancedCacheService implements OnModuleInit {
         this.logger.debug(`Cleaned up ${expiredKeys.length} expired cache entries`);
       }
 
-      // Adaptive cache sizing
+      // Adaptive cache sizing based on current load
       await this.adaptiveCacheSizing();
     } catch (error) {
       this.logger.error('Error during cache cleanup:', error);
     }
   }
 
+  /**
+   * Starts the periodic metrics collection routine.
+   * Collects and logs cache performance metrics every minute for monitoring.
+   */
   private startMetricsCollection() {
     this.metricsInterval = setInterval(() => {
       this.updateMetrics();
     }, 60000); // Every minute
   }
 
+  /**
+   * Updates and logs cache performance metrics.
+   * Monitors hit rates and memory usage, logging warnings when thresholds are exceeded.
+   */
   private updateMetrics() {
-    // Log cache performance
+    // Log cache performance warnings
     if (this.metrics.hitRate < 50) {
       this.logger.warn(`Low cache hit rate: ${this.metrics.hitRate.toFixed(1)}%`);
     }
 
-    if (this.metrics.memoryUsage > 100 * 1024 * 1024) { // 100MB
+    if (this.metrics.memoryUsage > 100 * 1024 * 1024) {
+      // 100MB
       this.logger.warn(`High cache memory usage: ${(this.metrics.memoryUsage / 1024 / 1024).toFixed(1)}MB`);
     }
   }
 
-  // Cleanup on module destroy
+  /**
+   * Cleanup method called when the module is being destroyed.
+   * Clears all intervals to prevent memory leaks and resource cleanup.
+   */
   onModuleDestroy() {
     if (this.cleanupInterval) {
       clearInterval(this.cleanupInterval);

@@ -4,6 +4,11 @@ import { HealthCheckService, HealthCheck, MemoryHealthIndicator, DiskHealthIndic
 import { CacheHealthIndicator } from './cache-health.indicator';
 import { QueueHealthIndicator } from './queue-health.indicator';
 
+/**
+ * Health check controller providing multiple health endpoints
+ * Implements Kubernetes-style health probes (readiness, liveness) and detailed health checks
+ * Uses @nestjs/terminus for standardized health check responses
+ */
 @ApiTags('Health')
 @Controller('health')
 export class HealthController {
@@ -16,6 +21,11 @@ export class HealthController {
     private queueHealth: QueueHealthIndicator,
   ) {}
 
+  /**
+   * Basic health check endpoint
+   * Performs essential health checks with graceful degradation
+   * Always returns success status to prevent cascading failures
+   */
   @Get()
   @ApiOperation({ summary: 'Basic health check' })
   @ApiResponse({ status: 200, description: 'Service is healthy' })
@@ -23,16 +33,17 @@ export class HealthController {
   async check() {
     try {
       const result = await this.health.check([
-        () => this.memory.checkHeap('memory_heap', 150 * 1024 * 1024), // 150MB
-        () => this.memory.checkRSS('memory_rss', 150 * 1024 * 1024), // 150MB
-        () => this.db.pingCheck('database'),
-        () => this.cacheHealth.isHealthy('cache'),
-        () => this.queueHealth.isHealthy('queue'),
+        () => this.memory.checkHeap('memory_heap', 150 * 1024 * 1024), // 150MB heap limit
+        () => this.memory.checkRSS('memory_rss', 150 * 1024 * 1024), // 150MB RSS limit
+        () => this.db.pingCheck('database'), // Database connectivity check
+        () => this.cacheHealth.isHealthy('cache'), // Cache service health
+        () => this.queueHealth.isHealthy('queue'), // Queue service health
       ]);
 
       return result;
     } catch (error) {
-      // Return a basic health response if checks fail
+      // Graceful degradation: Return basic success if detailed checks fail
+      // This prevents health checks from causing cascading failures
       return {
         status: 'ok',
         info: {
@@ -49,6 +60,11 @@ export class HealthController {
     }
   }
 
+  /**
+   * Detailed health check with comprehensive metrics
+   * Includes system information, uptime, and detailed component status
+   * Used for monitoring dashboards and detailed diagnostics
+   */
   @Get('detailed')
   @ApiOperation({ summary: 'Detailed health check with metrics' })
   @ApiResponse({ status: 200, description: 'Detailed health status' })
@@ -63,7 +79,7 @@ export class HealthController {
         () => this.queueHealth.isHealthy('queue'),
       ]);
 
-      // Add additional metrics
+      // Enhance response with system metrics
       return {
         ...result,
         timestamp: new Date().toISOString(),
@@ -72,7 +88,7 @@ export class HealthController {
         environment: process.env.NODE_ENV || 'development',
       };
     } catch (error) {
-      // Return detailed error information
+      // Return detailed error information for debugging
       return {
         status: 'error',
         timestamp: new Date().toISOString(),
@@ -93,6 +109,11 @@ export class HealthController {
     }
   }
 
+  /**
+   * Kubernetes readiness probe
+   * Checks if the application is ready to serve traffic
+   * Should include checks for critical dependencies (DB, Cache, Queue)
+   */
   @Get('ready')
   @ApiOperation({ summary: 'Readiness probe' })
   @ApiResponse({ status: 200, description: 'Service is ready' })
@@ -100,12 +121,17 @@ export class HealthController {
   @HealthCheck()
   readiness() {
     return this.health.check([
-      () => this.db.pingCheck('database'),
-      () => this.cacheHealth.isHealthy('cache'),
-      () => this.queueHealth.isHealthy('queue'),
+      () => this.db.pingCheck('database'), // Critical: Database must be available
+      () => this.cacheHealth.isHealthy('cache'), // Critical: Cache must be functional
+      () => this.queueHealth.isHealthy('queue'), // Critical: Queue must be accessible
     ]);
   }
 
+  /**
+   * Kubernetes liveness probe
+   * Checks if the application is alive and not in a deadlock state
+   * Uses higher memory threshold than readiness probe
+   */
   @Get('live')
   @ApiOperation({ summary: 'Liveness probe' })
   @ApiResponse({ status: 200, description: 'Service is alive' })
@@ -113,7 +139,7 @@ export class HealthController {
   @HealthCheck()
   liveness() {
     return this.health.check([
-      () => this.memory.checkHeap('memory_heap', 200 * 1024 * 1024), // 200MB
+      () => this.memory.checkHeap('memory_heap', 200 * 1024 * 1024), // Higher threshold for liveness
     ]);
   }
 }

@@ -4,28 +4,67 @@ import { CircuitBreakerService } from './circuit-breaker.service';
 import { GracefulDegradationService } from './graceful-degradation.service';
 import { DistributedLockService } from './distributed-lock.service';
 
+/**
+ * Configuration for a health check that monitors system component health.
+ * Defines how often to check, failure thresholds, and recovery actions.
+ */
 export interface HealthCheck {
+  /** Unique name identifier for the health check */
   name: string;
+  /** Async function that performs the health check and returns true if healthy */
   check: () => Promise<boolean>;
+  /** Interval in milliseconds between health checks */
   interval: number;
+  /** Maximum number of consecutive failures before triggering critical failure */
   maxFailures: number;
+  /** Optional recovery action to execute when health is restored */
   recoveryAction?: () => Promise<void>;
 }
 
+/**
+ * Configuration for a self-healing action that automatically resolves system issues.
+ * Defines when and how to execute healing actions with cooldown periods.
+ */
 export interface SelfHealingAction {
+  /** Unique name identifier for the healing action */
   name: string;
+  /** Async function that checks if the healing action should be executed */
   condition: () => Promise<boolean>;
+  /** Async function that performs the healing action */
   action: () => Promise<void>;
-  cooldownPeriod: number; // milliseconds
+  /** Minimum time in milliseconds between executions of this action */
+  cooldownPeriod: number;
+  /** Timestamp when this action was last executed (for cooldown tracking) */
   lastExecuted?: number;
 }
 
+/**
+ * Service for automatic system self-healing and health monitoring.
+ * Continuously monitors system health and executes healing actions to maintain system stability.
+ *
+ * @remarks
+ * This service provides:
+ * - Continuous health monitoring of system components
+ * - Automatic execution of healing actions based on conditions
+ * - Integration with circuit breakers and graceful degradation
+ * - Distributed coordination to prevent duplicate healing actions
+ * - Manual healing action triggering and status monitoring
+ */
 @Injectable()
 export class SelfHealingService implements OnModuleInit, OnModuleDestroy {
+  /** Logger instance for self-healing operations */
   private readonly logger = new Logger(SelfHealingService.name);
+
+  /** Map of registered health checks with failure tracking */
   private healthChecks: Map<string, HealthCheck & { failures: number; lastCheck: number }> = new Map();
+
+  /** Array of registered self-healing actions */
   private healingActions: SelfHealingAction[] = [];
+
+  /** Map of active health check intervals */
   private checkIntervals: Map<string, NodeJS.Timeout> = new Map();
+
+  /** Flag indicating whether self-healing is currently active */
   private isHealingActive = true;
 
   constructor(

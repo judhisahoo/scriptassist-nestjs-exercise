@@ -2,38 +2,89 @@ import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/commo
 import { ConfigService } from '@nestjs/config';
 import { PerformanceOptimizationService } from './performance-optimization.service';
 
+/**
+ * Configuration for a managed resource with capacity limits and allocation strategies.
+ * Defines how resources are managed, scaled, and allocated within the system.
+ */
 export interface ResourceConfig {
+  /** Unique name identifier for the resource */
   name: string;
+  /** Type of resource being managed */
   type: 'connection' | 'memory' | 'cpu' | 'io';
+  /** Maximum capacity allowed for this resource */
   maxCapacity: number;
+  /** Minimum capacity to maintain for this resource */
   minCapacity: number;
+  /** Current allocated capacity for this resource */
   currentCapacity: number;
+  /** Strategy for allocating and scaling the resource */
   allocationStrategy: 'static' | 'dynamic' | 'adaptive';
+  /** Priority level for resource allocation (higher = more important) */
   priority: number;
 }
 
+/**
+ * Represents a resource allocation record tracking who requested what and when.
+ * Used for monitoring resource usage and managing allocations.
+ */
 export interface ResourceAllocation {
+  /** Name of the resource that was allocated */
   resourceName: string;
+  /** Amount actually allocated */
   allocated: number;
+  /** Amount originally requested */
   requested: number;
+  /** Timestamp when the allocation was made */
   timestamp: number;
+  /** Identifier of who made the allocation request */
   requester: string;
 }
 
+/**
+ * Performance and utilization metrics for a managed resource.
+ * Tracks how effectively the resource is being used and identifies bottlenecks.
+ */
 export interface ResourceMetrics {
+  /** Current utilization percentage (0-100) */
   utilization: number;
+  /** Efficiency rating based on resource type and usage patterns (0-1) */
   efficiency: number;
+  /** Contention percentage indicating how often requests are blocked (0-100) */
   contention: number;
+  /** Current throughput for this resource */
   throughput: number;
+  /** Average latency for resource operations */
   latency: number;
 }
 
+/**
+ * Service for managing system resources with dynamic allocation and scaling.
+ * Provides resource pooling, monitoring, and automatic optimization for CPU, memory, connections, and I/O.
+ *
+ * @remarks
+ * This service provides:
+ * - Resource registration and configuration
+ * - Dynamic resource allocation with backpressure
+ * - Automatic scaling based on utilization patterns
+ * - Resource monitoring and metrics collection
+ * - Contention detection and optimization
+ * - Forecasting for capacity planning
+ */
 @Injectable()
 export class ResourceManagerService implements OnModuleInit, OnModuleDestroy {
+  /** Logger instance for resource management operations */
   private readonly logger = new Logger(ResourceManagerService.name);
+
+  /** Map of registered resources by name */
   private resources: Map<string, ResourceConfig> = new Map();
+
+  /** Map of resource allocations by resource name */
   private allocations: Map<string, ResourceAllocation[]> = new Map();
+
+  /** Map of resource performance metrics by resource name */
   private resourceMetrics: Map<string, ResourceMetrics> = new Map();
+
+  /** Interval for periodic resource monitoring */
   private monitoringInterval: NodeJS.Timeout;
 
   constructor(
@@ -142,7 +193,13 @@ export class ResourceManagerService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Request resource allocation
+   * Requests allocation of a specified amount from a named resource pool.
+   * Attempts to allocate immediately, or scales the resource if possible.
+   *
+   * @param resourceName - Name of the resource to allocate from
+   * @param amount - Amount of resource to allocate
+   * @param requester - Identifier of who is requesting the allocation
+   * @returns True if allocation was successful, false otherwise
    */
   async requestAllocation(
     resourceName: string,

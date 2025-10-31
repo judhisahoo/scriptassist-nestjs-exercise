@@ -2,40 +2,95 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PerformanceOptimizationService } from './performance-optimization.service';
 
+/**
+ * Configuration options for the load balancer service.
+ * Defines the load balancing algorithm and behavior parameters.
+ */
 export interface LoadBalancerConfig {
+  /** Load balancing algorithm to use for instance selection */
   algorithm: 'round-robin' | 'least-connections' | 'weighted-round-robin' | 'adaptive';
+  /** Interval in milliseconds between health checks */
   healthCheckInterval: number;
+  /** Maximum number of retry attempts for failed requests */
   maxRetries: number;
+  /** Timeout in milliseconds for failover operations */
   failoverTimeout: number;
 }
 
+/**
+ * Represents a backend instance in the load balancer pool.
+ * Contains health status, performance metrics, and load balancing information.
+ */
 export interface BackendInstance {
+  /** Unique identifier for the instance */
   id: string;
+  /** Base URL of the backend instance */
   url: string;
+  /** Weight for weighted load balancing algorithms */
   weight: number;
+  /** Whether the instance is currently healthy */
   healthy: boolean;
+  /** Number of active connections to this instance */
   activeConnections: number;
+  /** Total number of requests served by this instance */
   totalRequests: number;
+  /** Number of failed requests for this instance */
   errorCount: number;
+  /** Average response time in milliseconds */
   averageResponseTime: number;
+  /** Timestamp of the last health check */
   lastHealthCheck: number;
+  /** Number of consecutive health check failures */
   consecutiveFailures: number;
 }
 
+/**
+ * Result of a load balancing operation.
+ * Contains the selected instance and attempt information for failover tracking.
+ */
 export interface LoadBalancingResult {
+  /** The selected backend instance for the request */
   instance: BackendInstance;
+  /** Current attempt number (1-based) */
   attempt: number;
+  /** Total number of attempts allowed */
   totalAttempts: number;
 }
 
+/**
+ * Service for load balancing requests across multiple backend instances.
+ * Supports various load balancing algorithms with health monitoring and automatic failover.
+ *
+ * @remarks
+ * This service provides:
+ * - Multiple load balancing algorithms (round-robin, least-connections, weighted, adaptive)
+ * - Health monitoring and automatic instance failover
+ * - Performance metrics collection and adaptive routing
+ * - Dynamic instance management (add/remove/update weights)
+ */
 @Injectable()
 export class LoadBalancerService implements OnModuleInit {
+  /** Logger instance for load balancer operations */
   private readonly logger = new Logger(LoadBalancerService.name);
+
+  /** Array of backend instances managed by the load balancer */
   private instances: BackendInstance[] = [];
+
+  /** Current index for round-robin algorithm */
   private currentIndex = 0;
+
+  /** Load balancer configuration settings */
   private config: LoadBalancerConfig;
+
+  /** Interval for periodic health checks */
   private healthCheckInterval: NodeJS.Timeout;
 
+  /**
+   * Creates an instance of LoadBalancerService.
+   *
+   * @param configService - Service for accessing application configuration
+   * @param performanceService - Service for performance monitoring and optimization
+   */
   constructor(
     private configService: ConfigService,
     private performanceService: PerformanceOptimizationService,
@@ -81,7 +136,12 @@ export class LoadBalancerService implements OnModuleInit {
   }
 
   /**
-   * Select backend instance based on load balancing algorithm
+   * Selects a backend instance using the configured load balancing algorithm.
+   * Updates instance metrics and returns the selected instance with attempt information.
+   *
+   * @param requestWeight - Weight factor for the request (used by adaptive algorithm)
+   * @returns Load balancing result containing selected instance and attempt info
+   * @throws Error if no healthy instances are available
    */
   async selectInstance(requestWeight: number = 1): Promise<LoadBalancingResult> {
     const healthyInstances = this.instances.filter(instance => instance.healthy);
@@ -123,7 +183,11 @@ export class LoadBalancerService implements OnModuleInit {
   }
 
   /**
-   * Round-robin selection
+   * Selects the next instance in round-robin fashion.
+   * Cycles through healthy instances sequentially.
+   *
+   * @param healthyInstances - Array of healthy backend instances
+   * @returns Selected backend instance
    */
   private selectRoundRobin(healthyInstances: BackendInstance[]): BackendInstance {
     const instance = healthyInstances[this.currentIndex % healthyInstances.length];
@@ -132,7 +196,11 @@ export class LoadBalancerService implements OnModuleInit {
   }
 
   /**
-   * Least connections selection
+   * Selects the instance with the fewest active connections.
+   * Distributes load to the least busy instances.
+   *
+   * @param healthyInstances - Array of healthy backend instances
+   * @returns Selected backend instance with least connections
    */
   private selectLeastConnections(healthyInstances: BackendInstance[]): BackendInstance {
     return healthyInstances.reduce((selected, current) =>
@@ -141,7 +209,11 @@ export class LoadBalancerService implements OnModuleInit {
   }
 
   /**
-   * Weighted round-robin selection
+   * Selects instances based on their weights using weighted round-robin.
+   * Instances with higher weights receive proportionally more requests.
+   *
+   * @param healthyInstances - Array of healthy backend instances
+   * @returns Selected backend instance based on weight distribution
    */
   private selectWeightedRoundRobin(healthyInstances: BackendInstance[]): BackendInstance {
     // Calculate total weight
@@ -164,7 +236,12 @@ export class LoadBalancerService implements OnModuleInit {
   }
 
   /**
-   * Adaptive selection based on performance metrics
+   * Selects instances adaptively based on multiple performance metrics.
+   * Uses a scoring algorithm that considers connections, error rates, response times, and weights.
+   *
+   * @param healthyInstances - Array of healthy backend instances
+   * @param requestWeight - Weight factor for the request (currently unused)
+   * @returns Selected backend instance with highest performance score
    */
   private selectAdaptive(healthyInstances: BackendInstance[], requestWeight: number): BackendInstance {
     // Score instances based on multiple factors
@@ -186,7 +263,12 @@ export class LoadBalancerService implements OnModuleInit {
   }
 
   /**
-   * Record request completion and update metrics
+   * Records the completion of a request and updates instance performance metrics.
+   * Updates connection counts, error rates, and response time averages.
+   *
+   * @param instanceId - ID of the backend instance that handled the request
+   * @param responseTime - Response time in milliseconds
+   * @param success - Whether the request was successful
    */
   recordRequestCompletion(instanceId: string, responseTime: number, success: boolean) {
     const instance = this.instances.find(inst => inst.id === instanceId);
@@ -207,7 +289,8 @@ export class LoadBalancerService implements OnModuleInit {
   }
 
   /**
-   * Perform health checks on all instances
+   * Performs health checks on all backend instances concurrently.
+   * Updates instance health status and metrics based on check results.
    */
   private async performHealthChecks() {
     const healthCheckPromises = this.instances.map(async (instance) => {
@@ -256,7 +339,11 @@ export class LoadBalancerService implements OnModuleInit {
   }
 
   /**
-   * Check health of a specific instance
+   * Checks the health of a specific backend instance.
+   * Uses error rates and failure patterns to determine health status.
+   *
+   * @param instance - The backend instance to check
+   * @returns True if the instance is healthy, false otherwise
    */
   private async checkInstanceHealth(instance: BackendInstance): Promise<boolean> {
     try {
@@ -277,7 +364,13 @@ export class LoadBalancerService implements OnModuleInit {
   }
 
   /**
-   * Handle request with automatic retry and failover
+   * Executes an operation with automatic retry and failover across backend instances.
+   * Handles timeouts, retries, and automatic instance selection with load balancing.
+   *
+   * @param operation - The operation to execute on a backend instance
+   * @param requestWeight - Weight factor for load balancing algorithms
+   * @returns The result of the successful operation
+   * @throws Error if all retry attempts fail
    */
   async executeWithFailover<T>(
     operation: (instance: BackendInstance) => Promise<T>,
@@ -318,7 +411,10 @@ export class LoadBalancerService implements OnModuleInit {
   }
 
   /**
-   * Get load balancer statistics
+   * Retrieves comprehensive statistics about the load balancer state.
+   * Includes instance counts, request metrics, and error rates.
+   *
+   * @returns Object containing load balancer statistics and instance details
    */
   getStatistics() {
     const healthyInstances = this.instances.filter(inst => inst.healthy);
@@ -347,7 +443,11 @@ export class LoadBalancerService implements OnModuleInit {
   }
 
   /**
-   * Add new backend instance
+   * Adds a new backend instance to the load balancer pool.
+   * The instance starts as healthy and ready to receive traffic.
+   *
+   * @param url - Base URL of the backend instance
+   * @param weight - Load balancing weight for the instance
    */
   addInstance(url: string, weight: number = 1) {
     const newInstance: BackendInstance = {
@@ -368,7 +468,10 @@ export class LoadBalancerService implements OnModuleInit {
   }
 
   /**
-   * Remove backend instance
+   * Removes a backend instance from the load balancer pool.
+   * Existing connections to the instance may continue until completion.
+   *
+   * @param instanceId - ID of the instance to remove
    */
   removeInstance(instanceId: string) {
     const index = this.instances.findIndex(inst => inst.id === instanceId);
@@ -380,7 +483,11 @@ export class LoadBalancerService implements OnModuleInit {
   }
 
   /**
-   * Update instance weight for weighted algorithms
+   * Updates the load balancing weight for a specific instance.
+   * Affects weighted round-robin and adaptive algorithms.
+   *
+   * @param instanceId - ID of the instance to update
+   * @param weight - New weight value (must be >= 0)
    */
   updateInstanceWeight(instanceId: string, weight: number) {
     const instance = this.instances.find(inst => inst.id === instanceId);

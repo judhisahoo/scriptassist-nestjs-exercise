@@ -1,35 +1,82 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
+/**
+ * Configuration for a rate limiting rule that controls request frequency.
+ * Defines limits, time windows, and blocking behavior for different endpoints or users.
+ */
 export interface RateLimitRule {
+  /** Unique name identifier for the rule */
   name: string;
+  /** Maximum number of requests allowed in the time window */
   maxRequests: number;
+  /** Time window in milliseconds for rate limiting */
   windowMs: number;
+  /** Duration in milliseconds to block requests after limit is exceeded */
   blockDurationMs?: number;
+  /** Number of burst requests allowed beyond the regular limit */
   burstAllowance?: number;
+  /** Whether to use sliding window (true) or fixed window (false) algorithm */
   sliding?: boolean;
 }
 
+/**
+ * Internal data structure tracking rate limit state for a specific identifier.
+ * Maintains request history, blocking status, and burst token availability.
+ */
 export interface RateLimitEntry {
+  /** The identifier being rate limited (IP, user ID, etc.) */
   identifier: string;
+  /** Array of timestamps for recent requests within the window */
   requests: number[];
+  /** Timestamp until which the identifier is blocked (if applicable) */
   blockedUntil?: number;
+  /** Number of burst tokens remaining for immediate requests */
   burstTokens: number;
 }
 
+/**
+ * Result of a rate limit check indicating whether a request is allowed.
+ * Provides information about remaining requests, reset times, and blocking status.
+ */
 export interface RateLimitResult {
+  /** Whether the request is allowed to proceed */
   allowed: boolean;
+  /** Number of remaining requests allowed in the current window */
   remainingRequests: number;
+  /** Timestamp when the rate limit window resets */
   resetTime: number;
+  /** Timestamp until which the identifier is blocked (if applicable) */
   blockedUntil?: number;
+  /** Seconds to wait before retrying (if blocked) */
   retryAfter?: number;
 }
 
+/**
+ * Service for implementing rate limiting across the application.
+ * Supports multiple rate limit rules, sliding/fixed windows, burst allowances, and adaptive rate limiting.
+ *
+ * @remarks
+ * This service provides:
+ * - Configurable rate limiting rules for different endpoints
+ * - Sliding and fixed window algorithms
+ * - Burst request handling
+ * - Automatic cleanup of expired entries
+ * - Adaptive rate limiting based on system load
+ * - Middleware integration for HTTP requests
+ */
 @Injectable()
 export class RateLimiterService {
+  /** Logger instance for rate limiting operations */
   private readonly logger = new Logger(RateLimiterService.name);
+
+  /** Map of rate limiting rules by name */
   private rules: Map<string, RateLimitRule> = new Map();
+
+  /** Map of rate limit entries tracking request history and blocking status */
   private entries: Map<string, RateLimitEntry> = new Map();
+
+  /** Interval for periodic cleanup of expired entries */
   private cleanupInterval: NodeJS.Timeout;
 
   constructor(private configService: ConfigService) {
@@ -85,7 +132,12 @@ export class RateLimiterService {
   }
 
   /**
-   * Check if request is allowed under rate limiting
+   * Checks if a request from the given identifier is allowed under the specified rate limit rule.
+   * Implements sliding or fixed window rate limiting with burst allowances and blocking.
+   *
+   * @param identifier - Unique identifier for the requester (IP, user ID, etc.)
+   * @param ruleName - Name of the rate limit rule to apply (defaults to 'api-standard')
+   * @returns RateLimitResult indicating if the request is allowed and related metadata
    */
   checkLimit(
     identifier: string,

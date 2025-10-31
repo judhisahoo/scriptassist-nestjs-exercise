@@ -5,10 +5,42 @@ import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { TestUtils } from '../../../test/jest-setup';
 
+/**
+ * Comprehensive test suite for UsersController
+ * Validates user management REST API endpoints and error handling
+ *
+ * @description
+ * This test suite provides complete coverage for user CRUD operations:
+ * - User registration and creation with input validation
+ * - User listing with authentication requirements
+ * - Individual user retrieval with error scenarios
+ * - User profile updates with partial data support
+ * - User account deletion with dependency checks
+ * - Authentication guard integration testing
+ * - Comprehensive error handling validation
+ * - Edge cases and boundary condition testing
+ *
+ * @remarks
+ * Test Strategy:
+ * - Uses Jest mocking for UsersService dependency injection
+ * - Tests both happy path and error scenarios
+ * - Validates service method calls and parameters
+ * - Ensures proper error propagation from service to controller
+ * - Tests authentication guard integration
+ * - Validates response structure and data integrity
+ */
 describe('UsersController', () => {
+  /** Controller instance under test - main subject of testing */
   let controller: UsersController;
+
+  /** Mocked UsersService dependency - isolated testing of controller logic */
   let usersService: jest.Mocked<UsersService>;
 
+  /**
+   * Mock service implementation for testing
+   * Provides Jest mock functions for all UsersService methods
+   * Allows control over service behavior and verification of calls
+   */
   const mockUsersService = {
     create: jest.fn(),
     findAll: jest.fn(),
@@ -17,6 +49,9 @@ describe('UsersController', () => {
     remove: jest.fn(),
   };
 
+  /**
+   * Setup test module and dependencies before each test
+   */
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [UsersController],
@@ -32,6 +67,9 @@ describe('UsersController', () => {
     usersService = module.get(UsersService);
   });
 
+  /**
+   * Cleanup after each test to prevent test interference
+   */
   afterEach(() => {
     jest.clearAllMocks();
   });

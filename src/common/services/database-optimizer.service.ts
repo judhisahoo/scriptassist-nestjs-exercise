@@ -4,39 +4,91 @@ import { Repository, DataSource, QueryRunner } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import { PerformanceOptimizationService } from './performance-optimization.service';
 
+/**
+ * Metrics collected for each database query execution,
+ * used for performance monitoring and optimization analysis.
+ */
 export interface QueryMetrics {
+  /** The SQL query string (truncated for memory efficiency) */
   query: string;
+  /** Query execution time in milliseconds */
   executionTime: number;
+  /** Timestamp when the query was executed */
   timestamp: number;
+  /** Whether this query exceeded the slow query threshold */
   slow: boolean;
+  /** Optional database connection identifier */
   connectionId?: string;
 }
 
+/**
+ * Metrics for monitoring database connection pool health and utilization.
+ * Tracks connection usage patterns for optimization decisions.
+ */
 export interface ConnectionPoolMetrics {
+  /** Total number of connections in the pool */
   totalConnections: number;
+  /** Number of currently active connections */
   activeConnections: number;
+  /** Number of idle connections available for use */
   idleConnections: number;
+  /** Number of clients waiting for connections */
   waitingClients: number;
+  /** Pool utilization percentage (0-100) */
   poolUtilization: number;
 }
 
+/**
+ * Configuration options for database optimization behavior,
+ * controlling monitoring thresholds and optimization features.
+ */
 export interface DatabaseOptimizationConfig {
+  /** Threshold in milliseconds for identifying slow queries */
   slowQueryThreshold: number;
+  /** Maximum number of database connections allowed */
   maxConnections: number;
+  /** Minimum number of database connections to maintain */
   minConnections: number;
+  /** Timeout in milliseconds for establishing connections */
   connectionTimeout: number;
+  /** Timeout in milliseconds for individual queries */
   queryTimeout: number;
+  /** Whether to enable detailed query logging */
   enableQueryLogging: boolean;
+  /** Whether to enable connection pooling optimizations */
   enableConnectionPooling: boolean;
 }
 
+/**
+ * Database optimization service that monitors query performance, manages connection pools,
+ * and performs automatic database maintenance and optimization tasks.
+ *
+ * Features:
+ * - Real-time query performance monitoring and slow query detection
+ * - Adaptive connection pool sizing based on usage patterns
+ * - Automatic index usage analysis and optimization suggestions
+ * - Periodic database maintenance (VACUUM, ANALYZE, statistics updates)
+ * - Query caching and retry mechanisms with backpressure handling
+ * - Comprehensive metrics collection and reporting
+ */
 @Injectable()
 export class DatabaseOptimizerService implements OnModuleInit {
   private readonly logger = new Logger(DatabaseOptimizerService.name);
+
+  /** Array of recent query metrics for performance analysis */
   private queryMetrics: QueryMetrics[] = [];
+
+  /** Configuration settings for database optimization behavior */
   private config: DatabaseOptimizationConfig;
+
+  /** Interval for periodic optimization checks */
   private optimizationInterval: NodeJS.Timeout;
-  private slowQueries: Map<string, { count: number; totalTime: number; lastSeen: number }> = new Map();
+
+  /** Map tracking slow queries with execution statistics */
+  private slowQueries: Map<
+    string,
+    { count: number; totalTime: number; lastSeen: number }
+  > = new Map();
 
   constructor(
     private dataSource: DataSource,
@@ -54,12 +106,20 @@ export class DatabaseOptimizerService implements OnModuleInit {
     };
   }
 
+  /**
+   * Initializes the database optimizer by setting up query monitoring
+   * and starting the periodic optimization routine.
+   */
   async onModuleInit() {
     this.setupQueryMonitoring();
     this.startOptimizationRoutine();
     this.logger.log('Database optimizer initialized');
   }
 
+  /**
+   * Sets up query monitoring by intercepting database queries to track performance.
+   * Wraps the original query method to measure execution time and detect slow queries.
+   */
   private setupQueryMonitoring() {
     // Intercept database queries for monitoring
     const originalQuery = this.dataSource.manager.query.bind(this.dataSource.manager);
@@ -87,6 +147,14 @@ export class DatabaseOptimizerService implements OnModuleInit {
     };
   }
 
+  /**
+   * Records metrics for a query execution, including performance data and success status.
+   * Maintains a rolling window of metrics to prevent memory issues.
+   *
+   * @param query - The SQL query that was executed
+   * @param executionTime - Time taken to execute the query in milliseconds
+   * @param success - Whether the query executed successfully
+   */
   private recordQueryMetrics(query: string, executionTime: number, success: boolean = true) {
     const metrics: QueryMetrics = {
       query: query.substring(0, 200), // Truncate long queries
@@ -106,6 +174,13 @@ export class DatabaseOptimizerService implements OnModuleInit {
     this.performanceService.recordOperationTiming('database_query', executionTime, success);
   }
 
+  /**
+   * Records statistics for slow queries to track performance patterns.
+   * Aggregates execution counts and total time for optimization analysis.
+   *
+   * @param query - The slow query string
+   * @param executionTime - Execution time in milliseconds
+   */
   private recordSlowQuery(query: string, executionTime: number) {
     const queryKey = this.normalizeQuery(query);
     const existing = this.slowQueries.get(queryKey);
@@ -123,6 +198,13 @@ export class DatabaseOptimizerService implements OnModuleInit {
     }
   }
 
+  /**
+   * Normalizes a query string by replacing literals with placeholders.
+   * This allows grouping similar queries for analysis regardless of parameter values.
+   *
+   * @param query - The original query string
+   * @returns Normalized query with literals replaced by placeholders
+   */
   private normalizeQuery(query: string): string {
     // Normalize queries by replacing literals with placeholders
     return query
@@ -133,12 +215,20 @@ export class DatabaseOptimizerService implements OnModuleInit {
       .trim();
   }
 
+  /**
+   * Starts the periodic optimization routine that runs every 5 minutes.
+   * Performs comprehensive database health checks and optimizations.
+   */
   private startOptimizationRoutine() {
     this.optimizationInterval = setInterval(async () => {
       await this.performOptimizationChecks();
     }, 300000); // Every 5 minutes
   }
 
+  /**
+   * Performs comprehensive optimization checks including slow query analysis,
+   * connection pool optimization, index usage analysis, and maintenance tasks.
+   */
   private async performOptimizationChecks() {
     try {
       await this.analyzeSlowQueries();
@@ -150,11 +240,15 @@ export class DatabaseOptimizerService implements OnModuleInit {
     }
   }
 
+  /**
+   * Analyzes slow queries and provides optimization recommendations.
+   * Identifies the top 5 slowest queries by average execution time and suggests improvements.
+   */
   private async analyzeSlowQueries() {
     if (this.slowQueries.size === 0) return;
 
     const topSlowQueries = Array.from(this.slowQueries.entries())
-      .sort(([, a], [, b]) => (b.totalTime / b.count) - (a.totalTime / a.count))
+      .sort(([, a], [, b]) => b.totalTime / b.count - a.totalTime / a.count)
       .slice(0, 5);
 
     this.logger.log('Top 5 slow queries:');
@@ -171,13 +265,19 @@ export class DatabaseOptimizerService implements OnModuleInit {
     }
   }
 
+  /**
+   * Optimizes the database connection pool based on current usage metrics.
+   * Monitors utilization and waiting clients to make adaptive sizing decisions.
+   */
   private async optimizeConnectionPool() {
     try {
       // Get current pool metrics
       const poolMetrics = await this.getConnectionPoolMetrics();
 
       if (poolMetrics.poolUtilization > 90) {
-        this.logger.warn(`High database connection pool utilization: ${poolMetrics.poolUtilization.toFixed(1)}%`);
+        this.logger.warn(
+          `High database connection pool utilization: ${poolMetrics.poolUtilization.toFixed(1)}%`
+        );
         // Could trigger scaling or optimization here
       }
 
@@ -192,6 +292,13 @@ export class DatabaseOptimizerService implements OnModuleInit {
     }
   }
 
+  /**
+   * Retrieves current connection pool metrics from the database driver.
+   * In a real implementation, this would integrate with the actual database driver
+   * to get accurate metrics. Currently returns mock data for demonstration.
+   *
+   * @returns Current connection pool utilization metrics
+   */
   private async getConnectionPoolMetrics(): Promise<ConnectionPoolMetrics> {
     // This would integrate with the actual database driver to get real metrics
     // For now, return mock data based on configuration
@@ -204,6 +311,12 @@ export class DatabaseOptimizerService implements OnModuleInit {
     };
   }
 
+  /**
+   * Adapts the connection pool size based on current utilization metrics.
+   * Increases pool size when utilization is high, decreases when utilization is low.
+   *
+   * @param metrics - Current connection pool metrics
+   */
   private async adaptConnectionPool(metrics: ConnectionPoolMetrics) {
     // Adaptive connection pool sizing based on usage patterns
     const utilizationRate = metrics.poolUtilization;
@@ -214,7 +327,10 @@ export class DatabaseOptimizerService implements OnModuleInit {
       this.logger.log(`Increased max database connections to ${this.config.maxConnections}`);
     } else if (utilizationRate < 30 && this.config.maxConnections > this.config.minConnections) {
       // Decrease max connections
-      this.config.maxConnections = Math.max(this.config.maxConnections - 2, this.config.minConnections);
+      this.config.maxConnections = Math.max(
+        this.config.maxConnections - 2,
+        this.config.minConnections
+      );
       this.logger.log(`Decreased max database connections to ${this.config.maxConnections}`);
     }
   }
@@ -337,7 +453,13 @@ export class DatabaseOptimizerService implements OnModuleInit {
   }
 
   /**
-   * Execute query with optimization and monitoring
+   * Executes a database query with optimization, monitoring, and backpressure handling.
+   * Supports caching, retry logic, and performance monitoring.
+   *
+   * @param query - The SQL query to execute
+   * @param parameters - Query parameters for prepared statements
+   * @param options - Execution options including caching, timeout, and retries
+   * @returns Query execution result
    */
   async executeOptimizedQuery<T>(
     query: string,
@@ -392,17 +514,21 @@ export class DatabaseOptimizerService implements OnModuleInit {
   }
 
   /**
-   * Get database performance metrics
+   * Retrieves comprehensive database performance metrics and statistics.
+   * Includes query counts, response times, slow query analysis, and optimization suggestions.
+   *
+   * @returns Database performance metrics and statistics
    */
   getDatabaseMetrics() {
     const recentQueries = this.queryMetrics.filter(
-      metrics => Date.now() - metrics.timestamp < 300000 // Last 5 minutes
+      (metrics) => Date.now() - metrics.timestamp < 300000, // Last 5 minutes
     );
 
-    const slowQueries = recentQueries.filter(q => q.slow);
-    const avgResponseTime = recentQueries.length > 0
-      ? recentQueries.reduce((sum, q) => sum + q.executionTime, 0) / recentQueries.length
-      : 0;
+    const slowQueries = recentQueries.filter((q) => q.slow);
+    const avgResponseTime =
+      recentQueries.length > 0
+        ? recentQueries.reduce((sum, q) => sum + q.executionTime, 0) / recentQueries.length
+        : 0;
 
     return {
       totalQueries: recentQueries.length,
@@ -421,7 +547,8 @@ export class DatabaseOptimizerService implements OnModuleInit {
   }
 
   /**
-   * Force database optimization
+   * Manually triggers a full database optimization cycle.
+   * Useful for immediate optimization or administrative control.
    */
   async forceOptimization() {
     this.logger.log('Forcing database optimization...');
@@ -429,11 +556,21 @@ export class DatabaseOptimizerService implements OnModuleInit {
     this.logger.log('Database optimization completed');
   }
 
+  /**
+   * Utility method for creating delays in retry mechanisms.
+   * Uses Promise-based timeout for non-blocking delays.
+   *
+   * @param ms - Delay duration in milliseconds
+   * @returns Promise that resolves after the specified delay
+   */
   private delay(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
-  // Cleanup on module destroy
+  /**
+   * Cleanup method called when the module is being destroyed.
+   * Clears the optimization interval to prevent memory leaks.
+   */
   onModuleDestroy() {
     if (this.optimizationInterval) {
       clearInterval(this.optimizationInterval);

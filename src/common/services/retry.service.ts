@@ -1,28 +1,65 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
+/**
+ * Configuration for retry behavior including backoff strategy and conditions.
+ * Controls how operations are retried when they fail.
+ */
 export interface RetryConfig {
+  /** Maximum number of retry attempts */
   maxAttempts: number;
+  /** Initial delay in milliseconds before first retry */
   initialDelay: number;
+  /** Multiplier for exponential backoff between retries */
   backoffMultiplier: number;
+  /** Maximum delay in milliseconds between retries */
   maxDelay: number;
+  /** Optional function to determine if an error should be retried */
   retryCondition?: (error: Error) => boolean;
 }
 
+/**
+ * Result of a retry operation containing success status and metadata.
+ * Provides information about the operation outcome and retry attempts.
+ */
 export interface RetryResult<T> {
+  /** Whether the operation ultimately succeeded */
   success: boolean;
+  /** The result of the operation if successful */
   result?: T;
+  /** The final error if the operation failed */
   error?: Error;
+  /** Number of attempts made (including the initial attempt) */
   attempts: number;
+  /** Total delay time spent waiting between retries */
   totalDelay: number;
 }
 
+/**
+ * Service for implementing retry logic with exponential backoff and configurable conditions.
+ * Provides resilient operation execution with automatic retry on transient failures.
+ *
+ * @remarks
+ * This service provides:
+ * - Exponential backoff retry strategies
+ * - Configurable retry conditions based on error types
+ * - Scenario-specific retry configurations
+ * - Circuit breaker integration hooks
+ * - Comprehensive retry result reporting
+ */
 @Injectable()
 export class RetryService {
+  /** Logger instance for retry operations */
   private readonly logger = new Logger(RetryService.name);
 
+  /**
+   * Creates an instance of RetryService.
+   *
+   * @param configService - Service for accessing application configuration
+   */
   constructor(private configService: ConfigService) {}
 
+  /** Default retry configuration used when no custom config is provided */
   private readonly defaultConfig: RetryConfig = {
     maxAttempts: 3,
     initialDelay: 1000, // 1 second
@@ -31,7 +68,12 @@ export class RetryService {
   };
 
   /**
-   * Execute an operation with retry logic
+   * Executes an operation with retry logic using exponential backoff.
+   * Automatically retries failed operations based on the provided configuration.
+   *
+   * @param operation - The async operation to execute and potentially retry
+   * @param config - Optional retry configuration (uses defaults if not provided)
+   * @returns Promise resolving to a RetryResult containing success status and metadata
    */
   async executeWithRetry<T>(
     operation: () => Promise<T>,

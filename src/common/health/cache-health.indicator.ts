@@ -2,6 +2,11 @@ import { Injectable, Logger } from '@nestjs/common';
 import { HealthIndicator, HealthIndicatorResult, HealthCheckError } from '@nestjs/terminus';
 import { CacheService } from '../services/cache.service';
 
+/**
+ * Health indicator for cache service monitoring
+ * Performs comprehensive cache health checks including basic operations and performance metrics
+ * Extends Terminus HealthIndicator for standardized health check responses
+ */
 @Injectable()
 export class CacheHealthIndicator extends HealthIndicator {
   private readonly logger = new Logger(CacheHealthIndicator.name);
@@ -10,29 +15,34 @@ export class CacheHealthIndicator extends HealthIndicator {
     super();
   }
 
+  /**
+   * Performs comprehensive cache health check
+   * Tests basic CRUD operations, measures response time, and collects performance metrics
+   * @param key - Health check identifier key
+   * @returns Promise resolving to health check result
+   * @throws HealthCheckError if cache operations fail or performance is poor
+   */
   async isHealthy(key: string): Promise<HealthIndicatorResult> {
     try {
       const startTime = Date.now();
 
-      // Test basic cache operations
+      // Generate unique test key to avoid conflicts
       const testKey = `health-check-${Date.now()}`;
       const testValue = { test: 'data', timestamp: new Date().toISOString() };
 
-      // Test set operation
+      // Test basic cache operations: SET, GET, HAS, DELETE
       await this.cacheService.set(testKey, testValue, 60); // 1 minute TTL
 
-      // Test get operation
       const retrievedValue = await this.cacheService.get(testKey);
-
-      // Test has operation
       const exists = await this.cacheService.has(testKey);
 
-      // Clean up
+      // Clean up test data
       await this.cacheService.delete(testKey);
 
       const responseTime = Date.now() - startTime;
       const stats = this.cacheService.getStats();
 
+      // Determine health based on operation success
       const isHealthy = retrievedValue !== null && exists === true;
 
       if (isHealthy) {

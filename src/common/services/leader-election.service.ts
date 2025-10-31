@@ -4,35 +4,91 @@ import Redis from 'ioredis';
 import { DistributedLockService } from './distributed-lock.service';
 import { HorizontalScalingService } from './horizontal-scaling.service';
 
+/**
+ * Information about the current cluster leader.
+ * Contains election details and leader metadata for monitoring and coordination.
+ */
 export interface LeaderInfo {
+  /** Unique identifier of the leader instance */
   instanceId: string;
+  /** Timestamp when this instance was elected leader */
   electedAt: number;
+  /** Election term number for versioning leadership changes */
   term: number;
+  /** Additional metadata about the leader instance */
   metadata: Record<string, any>;
 }
 
+/**
+ * Definition of a scheduled task that runs only on the leader instance.
+ * Tasks are automatically managed during leadership transitions.
+ */
 export interface ScheduledTask {
+  /** Unique name identifier for the task */
   name: string;
+  /** Cron expression defining when the task should run */
   cronExpression: string;
+  /** Async function to execute when the task runs */
   handler: () => Promise<void>;
+  /** Whether the task is enabled and should be scheduled */
   enabled: boolean;
+  /** Timestamp of the last successful execution */
   lastExecution?: number;
+  /** Timestamp of the next scheduled execution */
   nextExecution?: number;
 }
 
+/**
+ * Service for leader election in a distributed cluster.
+ * Manages leadership state, scheduled tasks, and automatic leadership transitions.
+ *
+ * @remarks
+ * This service provides:
+ * - Distributed leader election using Redis
+ * - Automatic leadership renewal and failover
+ * - Scheduled task execution only on leader instances
+ * - Leadership event broadcasting
+ * - Term-based versioning for leadership changes
+ */
 @Injectable()
 export class LeaderElectionService implements OnModuleInit, OnModuleDestroy {
+  /** Logger instance for leader election operations */
   private readonly logger = new Logger(LeaderElectionService.name);
+
+  /** Redis client for leadership coordination */
   private redisClient: Redis;
+
+  /** Unique identifier for this instance */
   private instanceId: string;
+
+  /** Flag indicating if this instance is currently the leader */
   private isLeader = false;
+
+  /** Current leadership term number */
   private currentTerm = 0;
+
+  /** Redis key for storing current leader information */
   private leaderKey = 'cluster:leader';
+
+  /** Redis key for storing current term number */
   private termKey = 'cluster:term';
+
+  /** Interval for renewing leadership */
   private leadershipRenewalInterval: NodeJS.Timeout;
+
+  /** Map of registered scheduled tasks */
   private scheduledTasks: Map<string, ScheduledTask> = new Map();
+
+  /** Map of active task execution intervals */
   private taskExecutionIntervals: Map<string, NodeJS.Timeout> = new Map();
 
+  /**
+   * Creates an instance of LeaderElectionService.
+   *
+   * @param configService - Service for accessing application configuration
+   * @param distributedLockService - Service for distributed locking operations
+   * @param horizontalScalingService - Service for cluster instance management
+   */
   constructor(
     private configService: ConfigService,
     private distributedLockService: DistributedLockService,
@@ -66,7 +122,10 @@ export class LeaderElectionService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Attempt to become the cluster leader
+   * Attempts to become the cluster leader using distributed locking.
+   * Uses a two-step process: acquire election lock, then set leadership key.
+   *
+   * @returns True if leadership was successfully acquired, false otherwise
    */
   async attemptLeadership(): Promise<boolean> {
     const lockKey = 'leadership:election';
@@ -134,7 +193,8 @@ export class LeaderElectionService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Resign from leadership
+   * Resigns from leadership by clearing the leader key and stopping leader responsibilities.
+   * Automatically triggers a new leader election after resignation.
    */
   async resignLeadership(): Promise<void> {
     if (!this.isLeader) {
@@ -159,7 +219,10 @@ export class LeaderElectionService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Check if current instance is the leader
+   * Checks if the current instance is still the elected leader.
+   * Verifies leadership by checking the Redis leader key and comparing instance IDs.
+   *
+   * @returns True if this instance is the current leader, false otherwise
    */
   async isCurrentInstanceLeader(): Promise<boolean> {
     if (!this.isLeader) {
@@ -183,7 +246,10 @@ export class LeaderElectionService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Get current leader information
+   * Retrieves information about the current cluster leader.
+   * Returns null if no leader is currently elected.
+   *
+   * @returns LeaderInfo object or null if no leader exists
    */
   async getCurrentLeader(): Promise<LeaderInfo | null> {
     try {
@@ -200,7 +266,10 @@ export class LeaderElectionService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Register a scheduled task (only executed by leader)
+   * Registers a scheduled task that will only execute on the leader instance.
+   * Tasks are automatically started when this instance becomes leader.
+   *
+   * @param task - The scheduled task configuration
    */
   registerScheduledTask(task: ScheduledTask): void {
     this.scheduledTasks.set(task.name, task);
@@ -213,7 +282,10 @@ export class LeaderElectionService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Unregister a scheduled task
+   * Unregisters a scheduled task and stops its execution if running.
+   * Removes the task from the registry and clears any active intervals.
+   *
+   * @param taskName - Name of the task to unregister
    */
   unregisterScheduledTask(taskName: string): void {
     const task = this.scheduledTasks.get(taskName);
@@ -230,7 +302,11 @@ export class LeaderElectionService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Execute task only if current instance is leader
+   * Executes a registered task only if the current instance is the leader.
+   * Returns false if not leader or task is not found/disabled.
+   *
+   * @param taskName - Name of the registered task to execute
+   * @returns True if task was executed, false otherwise
    */
   async executeIfLeader(taskName: string): Promise<boolean> {
     if (!await this.isCurrentInstanceLeader()) {
@@ -254,13 +330,21 @@ export class LeaderElectionService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Get leadership statistics
+   * Retrieves comprehensive statistics about the leadership state.
+   * Includes leadership status, term information, and task counts.
+   *
+   * @returns Object containing leadership statistics and metadata
    */
   async getLeadershipStats(): Promise<{
+    /** Whether this instance is currently the leader */
     isLeader: boolean;
+    /** Current leadership term number */
     currentTerm: number;
+    /** Information about the current leader (if any) */
     leaderInfo?: LeaderInfo;
+    /** Number of registered scheduled tasks */
     registeredTasks: number;
+    /** Number of currently active task executions */
     activeTasks: number;
   }> {
     const leaderInfo = await this.getCurrentLeader();

@@ -4,33 +4,84 @@ import Redis from 'ioredis';
 import { HorizontalScalingService } from './horizontal-scaling.service';
 import { DistributedLockService } from './distributed-lock.service';
 
+/**
+ * Message structure for inter-instance coordination.
+ * Used for request/response patterns and direct messaging between instances.
+ */
 export interface CoordinationMessage {
+  /** Message type identifier */
   type: string;
+  /** ID of the instance that sent the message */
   from: string;
+  /** Optional target instance ID (for direct messages) */
   to?: string;
+  /** Message payload data */
   payload: any;
+  /** Timestamp when the message was sent */
   timestamp: number;
+  /** Optional correlation ID for request/response tracking */
   correlationId?: string;
 }
 
+/**
+ * Event structure for cluster-wide coordination events.
+ * Used for broadcasting state changes and notifications across all instances.
+ */
 export interface CoordinationEvent {
+  /** Type of event being broadcast */
   eventType: string;
+  /** ID of the instance that generated the event */
   instanceId: string;
+  /** Event-specific data payload */
   data: any;
+  /** Timestamp when the event occurred */
   timestamp: number;
 }
 
+/**
+ * Service for coordinating operations across multiple application instances.
+ * Provides messaging, event broadcasting, and consensus mechanisms for distributed systems.
+ *
+ * @remarks
+ * This service supports:
+ * - Inter-instance messaging with request/response patterns
+ * - Event broadcasting for cluster-wide notifications
+ * - Distributed consensus for coordinated operations
+ * - Health check coordination and graceful shutdown
+ */
 @Injectable()
 export class InstanceCoordinationService implements OnModuleInit, OnModuleDestroy {
+  /** Logger instance for coordination operations */
   private readonly logger = new Logger(InstanceCoordinationService.name);
+
+  /** Redis client for publishing messages and events */
   private redisClient: Redis;
+
+  /** Separate Redis connection for subscribing to messages and events */
   private subscriber: Redis;
+
+  /** Unique identifier for this instance */
   private instanceId: string;
+
+  /** Redis pub/sub channel for coordination messages */
   private coordinationChannel: string;
+
+  /** Redis pub/sub channel for coordination events */
   private eventChannel: string;
+
+  /** Map of registered message handlers by message type */
   private messageHandlers: Map<string, (message: CoordinationMessage) => Promise<void>> = new Map();
+
+  /** Map of registered event listeners by event type */
   private eventListeners: Map<string, (event: CoordinationEvent) => void> = new Map();
 
+  /**
+   * Creates an instance of InstanceCoordinationService.
+   *
+   * @param configService - Service for accessing application configuration
+   * @param horizontalScalingService - Service for cluster instance management
+   * @param distributedLockService - Service for distributed locking operations
+   */
   constructor(
     private configService: ConfigService,
     private horizontalScalingService: HorizontalScalingService,
@@ -60,7 +111,12 @@ export class InstanceCoordinationService implements OnModuleInit, OnModuleDestro
   }
 
   /**
-   * Send message to all instances
+   * Broadcasts a message to all instances in the cluster.
+   * Messages are published to the coordination channel and received by all subscribers.
+   *
+   * @param type - Message type identifier
+   * @param payload - Message payload data
+   * @param correlationId - Optional correlation ID for tracking
    */
   async broadcastMessage(type: string, payload: any, correlationId?: string): Promise<void> {
     const message: CoordinationMessage = {
@@ -80,7 +136,13 @@ export class InstanceCoordinationService implements OnModuleInit, OnModuleDestro
   }
 
   /**
-   * Send message to specific instance
+   * Sends a message to a specific instance in the cluster.
+   * The message will only be processed by the target instance.
+   *
+   * @param targetInstanceId - ID of the target instance
+   * @param type - Message type identifier
+   * @param payload - Message payload data
+   * @param correlationId - Optional correlation ID for tracking
    */
   async sendMessageToInstance(
     targetInstanceId: string,
@@ -106,7 +168,11 @@ export class InstanceCoordinationService implements OnModuleInit, OnModuleDestro
   }
 
   /**
-   * Publish coordination event
+   * Publishes a coordination event to all instances in the cluster.
+   * Events are broadcast to notify other instances of state changes or important occurrences.
+   *
+   * @param eventType - Type of event being published
+   * @param data - Event-specific data payload
    */
   async publishEvent(eventType: string, data: any): Promise<void> {
     const event: CoordinationEvent = {
@@ -125,7 +191,11 @@ export class InstanceCoordinationService implements OnModuleInit, OnModuleDestro
   }
 
   /**
-   * Register message handler
+   * Registers a handler for processing incoming coordination messages.
+   * Handlers are called when messages of the specified type are received.
+   *
+   * @param type - Message type to handle
+   * @param handler - Async function to process messages of this type
    */
   registerMessageHandler(type: string, handler: (message: CoordinationMessage) => Promise<void>) {
     this.messageHandlers.set(type, handler);
@@ -133,7 +203,11 @@ export class InstanceCoordinationService implements OnModuleInit, OnModuleDestro
   }
 
   /**
-   * Register event listener
+   * Registers a listener for coordination events.
+   * Listeners are called when events of the specified type are published by any instance.
+   *
+   * @param eventType - Type of event to listen for
+   * @param listener - Function called when events of this type are received
    */
   registerEventListener(eventType: string, listener: (event: CoordinationEvent) => void) {
     this.eventListeners.set(eventType, listener);
@@ -141,7 +215,15 @@ export class InstanceCoordinationService implements OnModuleInit, OnModuleDestro
   }
 
   /**
-   * Request response pattern - send request and wait for response
+   * Implements a request-response pattern for inter-instance communication.
+   * Sends a request to a target instance and waits for a response with timeout handling.
+   *
+   * @param targetInstanceId - ID of the instance to send the request to
+   * @param requestType - Type of request being made
+   * @param payload - Request payload data
+   * @param timeout - Maximum time to wait for response in milliseconds
+   * @returns The response payload from the target instance
+   * @throws Error if timeout is exceeded or request fails
    */
   async requestResponse(
     targetInstanceId: string,
@@ -189,7 +271,13 @@ export class InstanceCoordinationService implements OnModuleInit, OnModuleDestro
   }
 
   /**
-   * Send response to a request
+   * Sends a response to a previously received request.
+   * Used in request-response patterns to complete the communication cycle.
+   *
+   * @param targetInstanceId - ID of the instance that sent the original request
+   * @param originalRequestType - Type of the original request
+   * @param payload - Response payload data
+   * @param correlationId - Correlation ID from the original request
    */
   async sendResponse(
     targetInstanceId: string,
@@ -206,14 +294,24 @@ export class InstanceCoordinationService implements OnModuleInit, OnModuleDestro
   }
 
   /**
-   * Coordinate distributed operation across instances
+   * Coordinates a distributed operation across multiple instances.
+   * Ensures the required number of instances are available and optionally achieves consensus.
+   *
+   * @param operationId - Unique identifier for the operation
+   * @param operation - The operation to execute
+   * @param options - Configuration options for coordination
+   * @returns The result of the operation
+   * @throws Error if coordination requirements are not met
    */
   async coordinateDistributedOperation<T>(
     operationId: string,
     operation: () => Promise<T>,
     options: {
+      /** Minimum number of instances required */
       requiredInstances?: number;
+      /** Maximum time for the operation in milliseconds */
       timeout?: number;
+      /** Whether consensus among instances is required */
       consensusRequired?: boolean;
     } = {},
   ): Promise<T> {
@@ -271,10 +369,15 @@ export class InstanceCoordinationService implements OnModuleInit, OnModuleDestro
   }
 
   /**
-   * Health check coordination across instances
+   * Performs a coordinated health check across instances.
+   * Gathers both instance-specific and cluster-wide health information.
+   *
+   * @returns Object containing instance and cluster health data
    */
   async coordinatedHealthCheck(): Promise<{
+    /** Health information for this instance */
     instanceHealth: any;
+    /** Overall cluster health statistics */
     clusterHealth: any;
   }> {
     const instanceHealth = {
@@ -294,7 +397,10 @@ export class InstanceCoordinationService implements OnModuleInit, OnModuleDestro
   }
 
   /**
-   * Graceful shutdown coordination
+   * Coordinates graceful shutdown across the cluster.
+   * Notifies other instances and waits for acknowledgments before proceeding.
+   *
+   * @param reason - Reason for the shutdown (e.g., 'maintenance', 'scaling')
    */
   async coordinateShutdown(reason: string = 'maintenance'): Promise<void> {
     this.logger.log(`Coordinating shutdown: ${reason}`);

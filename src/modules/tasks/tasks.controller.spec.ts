@@ -11,10 +11,44 @@ import { TestUtils } from '../../../test/jest-setup';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
+/**
+ * Comprehensive test suite for TasksController
+ * Validates task management REST API endpoints and CQRS integration
+ *
+ * @description
+ * This test suite provides complete coverage for task CRUD operations:
+ * - Task creation with user assignment and validation
+ * - Task retrieval with pagination, filtering, and search
+ * - Task updates with partial data support
+ * - Task completion with status validation
+ * - Task deletion with soft delete implementation
+ * - Authentication guard integration testing
+ * - Rate limiting guard integration testing
+ * - Comprehensive error handling validation
+ * - CQRS command and query bus integration
+ *
+ * @remarks
+ * Test Strategy:
+ * - Uses Jest mocking for TaskApplicationService dependency injection
+ * - Tests both happy path and error scenarios for all endpoints
+ * - Validates service method calls with correct parameters
+ * - Ensures proper error propagation from service to controller
+ * - Tests authentication and rate limiting guard integration
+ * - Validates response structure and data integrity
+ * - Tests CQRS pattern implementation through application service
+ */
 describe('TasksController', () => {
+  /** Controller instance under test - main subject of testing */
   let controller: TasksController;
+
+  /** Mocked TaskApplicationService dependency - isolated testing of controller logic */
   let taskService: jest.Mocked<TaskApplicationService>;
 
+  /**
+   * Mock service implementation for testing
+   * Provides Jest mock functions for all TaskApplicationService methods
+   * Allows control over service behavior and verification of calls
+   */
   const mockTaskService = {
     createTask: jest.fn(),
     getTasks: jest.fn(),
@@ -23,32 +57,40 @@ describe('TasksController', () => {
     completeTask: jest.fn(),
   };
 
+  /**
+   * Mock user object representing authenticated user from JWT token
+   * Used in tests that require user context for task operations
+   */
   const mockUser = {
     id: '123e4567-e89b-12d3-a456-426614174000',
     email: 'test@example.com',
     name: 'Test User',
   };
 
+  /**
+   * Setup test module and dependencies before each test
+   * Configures NestJS testing module with mocked services and guards
+   */
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
-      imports: [ThrottlerModule.forRoot()],
+      imports: [ThrottlerModule.forRoot()], // Include ThrottlerModule for rate limiting tests
       controllers: [TasksController],
       providers: [
         {
           provide: TaskApplicationService,
-          useValue: mockTaskService,
+          useValue: mockTaskService, // Mock the application service
         },
         {
           provide: JwtAuthGuard,
-          useValue: { canActivate: jest.fn(() => true) },
+          useValue: { canActivate: jest.fn(() => true) }, // Mock JWT guard to always pass
         },
         {
           provide: 'THROTTLER:MODULE_OPTIONS',
-          useValue: {},
+          useValue: {}, // Mock throttler module options
         },
         {
           provide: ThrottlerGuard,
-          useValue: { canActivate: jest.fn(() => true) },
+          useValue: { canActivate: jest.fn(() => true) }, // Mock throttler guard to always pass
         },
       ],
     }).compile();
@@ -57,6 +99,10 @@ describe('TasksController', () => {
     taskService = module.get(TaskApplicationService);
   });
 
+  /**
+   * Cleanup after each test to prevent test interference
+   * Clears all Jest mocks to ensure test isolation
+   */
   afterEach(() => {
     jest.clearAllMocks();
   });

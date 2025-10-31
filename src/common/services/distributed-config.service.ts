@@ -2,39 +2,101 @@ import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/commo
 import { ConfigService } from '@nestjs/config';
 import Redis from 'ioredis';
 
+/**
+ * Interface representing a configuration entry with metadata.
+ * Contains the configuration value along with versioning and audit information.
+ */
 export interface ConfigEntry {
+  /** Configuration key identifier */
   key: string;
+  /** The actual configuration value */
   value: any;
+  /** Version number for optimistic concurrency control */
   version: number;
+  /** Timestamp when the configuration was last modified */
   lastModified: number;
+  /** Identifier of the instance/user that made the last modification */
   modifiedBy: string;
+  /** Optional time-to-live in seconds */
   ttl?: number;
 }
 
+/**
+ * Interface representing a configuration change event.
+ * Used for broadcasting configuration changes across distributed instances.
+ */
 export interface ConfigChangeEvent {
+  /** The configuration key that changed */
   key: string;
+  /** The previous value before the change */
   oldValue: any;
+  /** The new value after the change */
   newValue: any;
+  /** Version number of the change */
   version: number;
+  /** Identifier of who made the change */
   changedBy: string;
+  /** Timestamp when the change occurred */
   timestamp: number;
 }
 
+/**
+ * Service for distributed configuration management across multiple application instances.
+ * Provides real-time configuration synchronization, versioning, change tracking, and audit capabilities.
+ *
+ * @remarks
+ * This service supports:
+ * - Distributed configuration with Redis backend
+ * - Real-time change propagation via pub/sub
+ * - Configuration versioning and optimistic locking
+ * - Local caching for performance
+ * - Change listeners and event-driven updates
+ * - Bulk operations and backup/restore
+ * - Atomic configuration updates with validation
+ */
 @Injectable()
 export class DistributedConfigService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(DistributedConfigService.name);
+
+  /** Redis client for configuration operations */
   private redisClient: Redis;
+
+  /** Separate Redis connection for pub/sub subscriptions */
   private subscriber: Redis;
+
+  /** Prefix for all configuration keys in Redis */
   private configPrefix = 'config:';
+
+  /** Redis pub/sub channel for configuration change events */
   private configChannel = 'config:changes';
+
+  /** Unique identifier for this service instance */
   private instanceId: string;
+
+  /** Local cache of configuration entries for performance */
   private configCache: Map<string, ConfigEntry> = new Map();
+
+  /** Map of registered change listeners by configuration key */
   private changeListeners: Map<string, (event: ConfigChangeEvent) => void> = new Map();
 
+  /**
+   * Creates an instance of DistributedConfigService.
+   *
+   * @param configService - Service for accessing application configuration
+   */
   constructor(private configService: ConfigService) {
     this.instanceId = this.generateInstanceId();
   }
 
+  /**
+   * Lifecycle hook called when the module is initialized.
+   * Sets up Redis connections, subscriptions, and loads initial configuration.
+   *
+   * @remarks
+   * TODO: Add health checks before marking service as ready
+   * TODO: Implement graceful startup with retry mechanisms
+   * TODO: Add configuration validation during initialization
+   */
   async onModuleInit() {
     await this.initializeRedis();
     await this.setupConfigSubscription();
@@ -42,6 +104,15 @@ export class DistributedConfigService implements OnModuleInit, OnModuleDestroy {
     this.logger.log('Distributed config service initialized');
   }
 
+  /**
+   * Lifecycle hook called when the module is being destroyed.
+   * Ensures proper cleanup of Redis connections and resources.
+   *
+   * @remarks
+   * TODO: Implement graceful shutdown with pending operations handling
+   * TODO: Add connection draining before shutdown
+   * TODO: Log pending operations during shutdown
+   */
   async onModuleDestroy() {
     if (this.subscriber) {
       this.subscriber.quit();
@@ -52,17 +123,31 @@ export class DistributedConfigService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Set configuration value
+   * Sets a configuration value with versioning and change tracking.
+   * Updates both Redis and local cache, then broadcasts the change to other instances.
+   *
+   * @param key - Configuration key to set
+   * @param value - The configuration value to store
+   * @param options - Additional options for the configuration entry
+   * @remarks
+   * TODO: Implement optimistic locking with version conflict detection
+   * TODO: Add data validation and sanitization before storing
+   * TODO: Implement configuration schema validation
+   * TODO: Add audit logging for sensitive configuration changes
    */
-  async setConfig(key: string, value: any, options: {
-    ttl?: number;
-    modifiedBy?: string;
-  } = {}): Promise<void> {
+  async setConfig(
+    key: string,
+    value: any,
+    options: {
+      ttl?: number;
+      modifiedBy?: string;
+    } = {},
+  ): Promise<void> {
     const { ttl, modifiedBy = this.instanceId } = options;
     const configKey = this.getConfigKey(key);
 
     try {
-      // Get current config to track changes
+      // Get current config to track changes and maintain versioning
       const currentEntry = await this.getConfigEntry(key);
       const newVersion = (currentEntry?.version || 0) + 1;
 
@@ -75,7 +160,7 @@ export class DistributedConfigService implements OnModuleInit, OnModuleDestroy {
         ttl,
       };
 
-      // Store in Redis
+      // Store in Redis with optional TTL
       const serializedEntry = JSON.stringify(configEntry);
       if (ttl) {
         await this.redisClient.setex(configKey, ttl, serializedEntry);
@@ -83,10 +168,10 @@ export class DistributedConfigService implements OnModuleInit, OnModuleDestroy {
         await this.redisClient.set(configKey, serializedEntry);
       }
 
-      // Update local cache
+      // Update local cache for performance
       this.configCache.set(key, configEntry);
 
-      // Publish change event
+      // Broadcast change event to other instances
       const changeEvent: ConfigChangeEvent = {
         key,
         oldValue: currentEntry?.value,
@@ -106,20 +191,30 @@ export class DistributedConfigService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Get configuration value
+   * Retrieves a configuration value with local caching for performance.
+   * Falls back to Redis if not in local cache or cache entry is invalid.
+   *
+   * @param key - Configuration key to retrieve
+   * @param defaultValue - Default value to return if key not found
+   * @returns The configuration value or default value
+   * @remarks
+   * TODO: Add cache hit/miss metrics and monitoring
+   * TODO: Implement cache warming for frequently accessed configs
+   * TODO: Add data validation after deserialization
+   * TODO: Consider implementing configuration versioning checks
    */
   async getConfig<T = any>(key: string, defaultValue?: T): Promise<T | undefined> {
     try {
-      // Check local cache first
+      // Check local cache first for performance
       const cachedEntry = this.configCache.get(key);
       if (cachedEntry && this.isEntryValid(cachedEntry)) {
         return cachedEntry.value as T;
       }
 
-      // Fetch from Redis
+      // Fetch from Redis if not in cache or cache invalid
       const configEntry = await this.getConfigEntry(key);
       if (configEntry && this.isEntryValid(configEntry)) {
-        // Update local cache
+        // Update local cache for future requests
         this.configCache.set(key, configEntry);
         return configEntry.value as T;
       }
@@ -132,13 +227,22 @@ export class DistributedConfigService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Delete configuration
+   * Deletes a configuration entry and broadcasts the deletion to other instances.
+   *
+   * @param key - Configuration key to delete
+   * @param deletedBy - Identifier of who performed the deletion
+   * @returns True if the configuration was deleted, false otherwise
+   * @remarks
+   * TODO: Add soft delete option with TTL instead of hard delete
+   * TODO: Implement deletion audit logging for compliance
+   * TODO: Add cascade deletion for dependent configurations
+   * TODO: Implement deletion confirmation for critical configurations
    */
   async deleteConfig(key: string, deletedBy: string = this.instanceId): Promise<boolean> {
     const configKey = this.getConfigKey(key);
 
     try {
-      // Get current value for change event
+      // Get current value for change event tracking
       const currentEntry = await this.getConfigEntry(key);
 
       // Delete from Redis
@@ -148,7 +252,7 @@ export class DistributedConfigService implements OnModuleInit, OnModuleDestroy {
         // Remove from local cache
         this.configCache.delete(key);
 
-        // Publish change event
+        // Broadcast deletion event to other instances
         const changeEvent: ConfigChangeEvent = {
           key,
           oldValue: currentEntry?.value,
@@ -172,10 +276,21 @@ export class DistributedConfigService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Get all configuration keys
+   * Retrieves all configuration keys matching a pattern.
+   * WARNING: Uses KEYS command which can be expensive in production.
+   *
+   * @param pattern - Redis key pattern (default: '*' for all keys)
+   * @returns Array of configuration keys (without prefix)
+   * @remarks
+   * CRITICAL: KEYS command is blocking and expensive - replace with SCAN
+   * TODO: Replace KEYS with SCAN for production use (non-blocking, paginated)
+   * TODO: Implement pagination for large key sets
+   * TODO: Add rate limiting for key listing operations
+   * TODO: Consider implementing key caching for frequently accessed patterns
    */
   async getAllConfigKeys(pattern: string = '*'): Promise<string[]> {
     try {
+      // CRITICAL: KEYS command blocks Redis - use SCAN in production
       const keys = await this.redisClient.keys(this.getConfigKey(pattern));
       return keys.map(key => key.replace(this.configPrefix, ''));
     } catch (error) {
@@ -185,7 +300,15 @@ export class DistributedConfigService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Get configuration with metadata
+   * Retrieves a configuration entry with full metadata (version, timestamps, etc.).
+   *
+   * @param key - Configuration key to retrieve
+   * @returns Complete ConfigEntry object or null if not found
+   * @remarks
+   * TODO: Add metadata caching for performance
+   * TODO: Implement metadata validation and integrity checks
+   * TODO: Add metadata access logging for audit purposes
+   * TODO: Consider implementing metadata compression for large entries
    */
   async getConfigWithMetadata(key: string): Promise<ConfigEntry | null> {
     try {
@@ -198,7 +321,15 @@ export class DistributedConfigService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Watch configuration changes
+   * Registers a callback to be notified when a specific configuration key changes.
+   *
+   * @param key - Configuration key to watch
+   * @param callback - Function called when the configuration changes
+   * @remarks
+   * TODO: Add watcher lifecycle management and cleanup
+   * TODO: Implement watcher priority and ordering
+   * TODO: Add watcher error handling and isolation
+   * TODO: Consider implementing watcher debouncing for rapid changes
    */
   watchConfig(key: string, callback: (event: ConfigChangeEvent) => void): void {
     this.changeListeners.set(key, callback);
@@ -206,7 +337,13 @@ export class DistributedConfigService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Unwatch configuration changes
+   * Removes a previously registered configuration change watcher.
+   *
+   * @param key - Configuration key to stop watching
+   * @remarks
+   * TODO: Add watcher cleanup verification
+   * TODO: Implement watcher statistics and monitoring
+   * TODO: Add graceful watcher shutdown handling
    */
   unwatchConfig(key: string): void {
     this.changeListeners.delete(key);
@@ -214,7 +351,18 @@ export class DistributedConfigService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Atomic configuration update with validation
+   * Performs an atomic configuration update with validation.
+   * Reads current value, applies transformation, validates result, then saves atomically.
+   *
+   * @param key - Configuration key to update
+   * @param updateFn - Function that transforms the current value to new value
+   * @param options - Validation and update options
+   * @returns True if update succeeded, false otherwise
+   * @remarks
+   * TODO: Implement optimistic locking to prevent concurrent modifications
+   * TODO: Add transaction support for multi-key atomic updates
+   * TODO: Implement rollback mechanism for failed validations
+   * TODO: Add atomic update metrics and performance monitoring
    */
   async updateConfigAtomically(
     key: string,
@@ -233,7 +381,7 @@ export class DistributedConfigService implements OnModuleInit, OnModuleDestroy {
 
       const newValue = updateFn(currentValue);
 
-      // Validate new value
+      // Validate new value before saving
       if (validator && !validator(newValue)) {
         throw new Error(`Configuration validation failed for key: ${key}`);
       }
@@ -247,7 +395,16 @@ export class DistributedConfigService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Bulk configuration operations
+   * Performs bulk configuration operations using Redis pipelines for efficiency.
+   * Sets multiple configuration entries in a single atomic operation.
+   *
+   * @param configs - Array of configuration entries to set
+   * @param modifiedBy - Identifier for who performed the bulk operation
+   * @remarks
+   * TODO: Add batch size limits to prevent memory issues
+   * TODO: Implement transaction rollback on partial failures
+   * TODO: Add progress tracking for large bulk operations
+   * TODO: Implement bulk operation metrics and performance monitoring
    */
   async setBulkConfig(
     configs: Array<{ key: string; value: any; ttl?: number }>,
@@ -277,7 +434,7 @@ export class DistributedConfigService implements OnModuleInit, OnModuleDestroy {
     try {
       await pipeline.exec();
 
-      // Update local cache
+      // Update local cache for all entries
       for (const config of configs) {
         this.configCache.set(config.key, {
           key: config.key,
@@ -297,7 +454,15 @@ export class DistributedConfigService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Configuration backup and restore
+   * Creates a complete backup of all configuration entries.
+   * Useful for disaster recovery and configuration migration.
+   *
+   * @returns Object containing all configuration entries with metadata
+   * @remarks
+   * TODO: Implement incremental backups for large configurations
+   * TODO: Add backup compression and encryption
+   * TODO: Implement backup versioning and retention policies
+   * TODO: Add backup operation metrics and monitoring
    */
   async backupConfig(): Promise<Record<string, ConfigEntry>> {
     try {
@@ -319,7 +484,22 @@ export class DistributedConfigService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  async restoreConfig(backup: Record<string, ConfigEntry>, restoredBy: string = this.instanceId): Promise<void> {
+  /**
+   * Restores configuration from a backup created by backupConfig().
+   * Overwrites existing configurations with backup data.
+   *
+   * @param backup - Backup object returned by backupConfig()
+   * @param restoredBy - Identifier for who performed the restore
+   * @remarks
+   * TODO: Implement dry-run mode for restore validation
+   * TODO: Add restore rollback capability
+   * TODO: Implement partial restore for specific keys
+   * TODO: Add restore operation audit logging
+   */
+  async restoreConfig(
+    backup: Record<string, ConfigEntry>,
+    restoredBy: string = this.instanceId,
+  ): Promise<void> {
     try {
       const configs: Array<{ key: string; value: any; ttl?: number }> = [];
 
@@ -340,19 +520,27 @@ export class DistributedConfigService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Configuration diff and sync
+   * Synchronizes configuration with a peer instance.
+   * Pulls missing configurations from peer to ensure consistency across instances.
+   *
+   * @param peerInstanceId - Identifier of the peer instance to sync with
+   * @remarks
+   * TODO: Implement bidirectional sync (push local changes to peer)
+   * TODO: Add conflict resolution for conflicting configurations
+   * TODO: Implement incremental sync instead of full comparison
+   * TODO: Add sync operation metrics and performance monitoring
+   * TODO: Implement sync retry logic and error recovery
    */
   async syncConfigWithPeer(peerInstanceId: string): Promise<void> {
     try {
-      // This would typically involve communication with peer instance
-      // For now, we'll implement a basic sync mechanism
+      // Compare local and peer configuration keys
       const localKeys = await this.getAllConfigKeys();
       const peerKeys = await this.requestPeerConfigKeys(peerInstanceId);
 
-      // Find missing keys
+      // Identify configurations missing locally
       const missingKeys = peerKeys.filter(key => !localKeys.includes(key));
 
-      // Sync missing configurations
+      // Sync missing configurations from peer
       for (const key of missingKeys) {
         const peerConfig = await this.requestPeerConfig(peerInstanceId, key);
         if (peerConfig) {

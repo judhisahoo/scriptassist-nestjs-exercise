@@ -4,35 +4,86 @@ import { CircuitBreakerService } from './circuit-breaker.service';
 import { GracefulDegradationService } from './graceful-degradation.service';
 import { SelfHealingService } from './self-healing.service';
 
+/**
+ * Defines a service boundary for fault isolation.
+ * Service boundaries group related functionality and define isolation strategies.
+ */
 export interface ServiceBoundary {
+  /** Unique name identifier for the service boundary */
   name: string;
+  /** Type of service boundary */
   type: 'internal' | 'external' | 'infrastructure';
+  /** List of service dependencies that this boundary relies on */
   dependencies: string[];
+  /** Level of isolation to apply to this boundary */
   isolationLevel: 'none' | 'thread' | 'process' | 'container';
+  /** Optional circuit breaker name for this boundary */
   circuitBreaker?: string;
+  /** Timeout in milliseconds for operations in this boundary */
   timeout: number;
+  /** Optional retry policy for failed operations */
   retryPolicy?: {
+    /** Maximum number of retry attempts */
     maxAttempts: number;
+    /** Multiplier for exponential backoff between retries */
     backoffMultiplier: number;
+    /** Initial delay in milliseconds before first retry */
     initialDelay: number;
   };
 }
 
+/**
+ * Defines a fault domain for grouping related services and defining failure handling strategies.
+ * Fault domains allow coordinated isolation and recovery of service groups.
+ */
 export interface FaultDomain {
+  /** Unique name identifier for the fault domain */
   name: string;
+  /** List of service boundary names included in this domain */
   services: string[];
+  /** Number of failures before triggering isolation */
   failureThreshold: number;
+  /** Strategy to use when isolating the domain */
   isolationStrategy: 'fail-fast' | 'degrade' | 'isolate';
+  /** Strategy for recovering the domain after isolation */
   recoveryStrategy: 'automatic' | 'manual' | 'circuit-breaker';
 }
 
+/**
+ * Service for implementing fault isolation patterns in distributed systems.
+ * Provides service boundaries, fault domains, and coordinated failure handling
+ * to prevent cascading failures and enable graceful degradation.
+ *
+ * @remarks
+ * This service supports:
+ * - Service boundary isolation with configurable levels
+ * - Fault domain grouping for coordinated failure handling
+ * - Circuit breaker integration for automatic failure detection
+ * - Graceful degradation coordination
+ * - Automatic and manual recovery strategies
+ */
 @Injectable()
 export class FaultIsolationService implements OnModuleInit {
+  /** Logger instance for fault isolation operations */
   private readonly logger = new Logger(FaultIsolationService.name);
+
+  /** Map of registered service boundaries by name */
   private serviceBoundaries: Map<string, ServiceBoundary> = new Map();
+
+  /** Map of registered fault domains by name */
   private faultDomains: Map<string, FaultDomain> = new Map();
+
+  /** Map tracking failure counts and timestamps for each fault domain */
   private domainFailures: Map<string, { count: number; lastFailure: number }> = new Map();
 
+  /**
+   * Creates an instance of FaultIsolationService.
+   *
+   * @param configService - Service for accessing application configuration
+   * @param circuitBreakerService - Service for circuit breaker functionality
+   * @param gracefulDegradationService - Service for graceful degradation features
+   * @param selfHealingService - Service for self-healing capabilities
+   */
   constructor(
     private configService: ConfigService,
     private circuitBreakerService: CircuitBreakerService,
@@ -182,6 +233,14 @@ export class FaultIsolationService implements OnModuleInit {
     }, 10000);
   }
 
+  /**
+   * Registers a new service boundary for fault isolation.
+   * Service boundaries define isolation levels and failure handling strategies.
+   *
+   * @param boundary - The service boundary configuration to register
+   * @remarks
+   * Automatically registers associated circuit breakers if specified in the boundary configuration.
+   */
   registerServiceBoundary(boundary: ServiceBoundary) {
     this.serviceBoundaries.set(boundary.name, boundary);
 
@@ -198,19 +257,41 @@ export class FaultIsolationService implements OnModuleInit {
     this.logger.log(`Service boundary registered: ${boundary.name} (${boundary.isolationLevel} isolation)`);
   }
 
+  /**
+   * Registers a new fault domain for coordinated failure handling.
+   * Fault domains group related services and define failure thresholds and recovery strategies.
+   *
+   * @param domain - The fault domain configuration to register
+   * @remarks
+   * Initializes failure tracking for the domain with zero initial failure count.
+   */
   registerFaultDomain(domain: FaultDomain) {
     this.faultDomains.set(domain.name, domain);
     this.domainFailures.set(domain.name, { count: 0, lastFailure: 0 });
     this.logger.log(`Fault domain registered: ${domain.name} (${domain.services.length} services)`);
   }
 
+  /**
+   * Executes an operation within a specified service boundary with fault isolation controls.
+   * Applies timeout, retry, circuit breaker, and fallback mechanisms based on boundary configuration.
+   *
+   * @param boundaryName - Name of the service boundary to execute within
+   * @param operation - The async operation to execute
+   * @param options - Execution options overriding boundary defaults
+   * @returns The result of the operation
+   * @throws Error if boundary is unknown or isolated, or if operation fails without fallback
+   */
   async executeInBoundary<T>(
     boundaryName: string,
     operation: () => Promise<T>,
     options: {
+      /** Whether to use circuit breaker protection */
       useCircuitBreaker?: boolean;
+      /** Whether to apply timeout controls */
       useTimeout?: boolean;
+      /** Whether to use retry logic */
       useRetry?: boolean;
+      /** Fallback function to execute on failure */
       fallback?: () => Promise<T>;
     } = {},
   ): Promise<T> {

@@ -1,29 +1,72 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
+/**
+ * Defines a feature that can be gracefully degraded during system stress.
+ * Features have priorities and dependencies that affect degradation order.
+ */
 export interface DegradationFeature {
+  /** Unique name identifier for the feature */
   name: string;
+  /** Whether the feature is currently enabled */
   enabled: boolean;
+  /** Whether a fallback is available when the feature is degraded */
   fallbackAvailable: boolean;
-  priority: number; // Higher priority features degrade last
-  dependencies?: string[]; // Other features this depends on
+  /** Priority level (higher numbers degrade last) */
+  priority: number;
+  /** Optional list of features this feature depends on */
+  dependencies?: string[];
 }
 
+/**
+ * Defines a strategy for graceful degradation based on system conditions.
+ * Strategies evaluate conditions and determine which features to disable.
+ */
 export interface DegradationStrategy {
+  /** Unique name identifier for the strategy */
   name: string;
+  /** Condition function that determines when to apply this strategy */
   condition: () => Promise<boolean> | boolean;
+  /** List of feature names to disable when this strategy is active */
   featuresToDisable: string[];
+  /** Human-readable description of the strategy */
   description: string;
 }
 
+/**
+ * Service for implementing graceful degradation patterns in distributed systems.
+ * Automatically disables non-critical features during system stress to maintain core functionality.
+ *
+ * @remarks
+ * This service supports:
+ * - Feature prioritization and dependency management
+ * - Automatic degradation based on system conditions (memory, CPU, etc.)
+ * - Manual degradation control for operational needs
+ * - Fallback execution patterns for degraded features
+ * - Real-time monitoring and recovery detection
+ */
 @Injectable()
 export class GracefulDegradationService implements OnModuleInit {
+  /** Logger instance for degradation operations */
   private readonly logger = new Logger(GracefulDegradationService.name);
+
+  /** Map of registered features by name */
   private features: Map<string, DegradationFeature> = new Map();
+
+  /** Array of registered degradation strategies */
   private strategies: DegradationStrategy[] = [];
+
+  /** Set of currently degraded feature names */
   private degradedFeatures: Set<string> = new Set();
+
+  /** Flag indicating if the system is in degraded mode */
   private isDegradedMode = false;
 
+  /**
+   * Creates an instance of GracefulDegradationService.
+   *
+   * @param configService - Service for accessing application configuration
+   */
   constructor(private configService: ConfigService) {}
 
   onModuleInit() {
@@ -181,11 +224,28 @@ export class GracefulDegradationService implements OnModuleInit {
     }, 5000);
   }
 
+  /**
+   * Registers a feature for graceful degradation management.
+   * Features can be automatically disabled during system stress based on priority and dependencies.
+   *
+   * @param feature - The feature configuration to register
+   * @remarks
+   * Features with higher priority numbers are degraded last.
+   * Dependencies are automatically considered during degradation evaluation.
+   */
   registerFeature(feature: DegradationFeature) {
     this.features.set(feature.name, feature);
     this.logger.log(`Feature registered for degradation: ${feature.name} (priority: ${feature.priority})`);
   }
 
+  /**
+   * Registers a degradation strategy for automatic feature disabling.
+   * Strategies define conditions under which features should be degraded.
+   *
+   * @param strategy - The degradation strategy to register
+   * @remarks
+   * Strategies are evaluated periodically to determine if features should be degraded.
+   */
   registerStrategy(strategy: DegradationStrategy) {
     this.strategies.push(strategy);
     this.logger.log(`Degradation strategy registered: ${strategy.name}`);
@@ -303,6 +363,15 @@ export class GracefulDegradationService implements OnModuleInit {
   }
 
   // Graceful fallback execution
+  /**
+   * Executes an operation with automatic fallback if the feature is degraded.
+   * Provides a convenient way to handle degraded features with alternative implementations.
+   *
+   * @param featureName - Name of the feature to check
+   * @param operation - The primary operation to execute if feature is enabled
+   * @param fallback - The fallback operation to execute if feature is degraded
+   * @returns The result of either the primary operation or fallback
+   */
   async executeWithFallback<T>(
     featureName: string,
     operation: () => Promise<T>,
